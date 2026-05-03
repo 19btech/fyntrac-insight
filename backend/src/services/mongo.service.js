@@ -2,8 +2,7 @@ const mongoose = require('mongoose');
 const { MongoClient } = require('mongodb');
 
 // ── Target (financial data) DB — per-tenant connection cache ──────────────────
-// DB name pattern: FYNTRAC_DATA_<TENANT_UPPER>  (mirrors DSL's DSL_STUDIO_<TENANT>)
-const TARGET_DB_PREFIX = 'FYNTRAC_DATA_';
+// DB name pattern: <TENANT_UPPER>
 
 /** @type {Map<string, { client: MongoClient, db: import('mongodb').Db, promise: Promise }>} */
 const _targetConns = new Map();
@@ -37,7 +36,7 @@ async function getTargetDb(tenant) {
     baseUri = rawUri.replace(/\/[^/?]+(\?|$)/, '');
   }
 
-  const dbName = `${TARGET_DB_PREFIX}${key}`;
+  const dbName = `${key}`;
   const uri = `${baseUri}/${dbName}`;
 
   console.log(`[mongo.service] Creating target DB connection for tenant '${key}' → ${dbName}`);

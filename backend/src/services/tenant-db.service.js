@@ -129,7 +129,7 @@ async function tenantDbMiddleware(req, res, next) {
 
   try {
     req.tenantConn = await getTenantConnection(tenant);
-    req.tenantId   = (tenant || 'master').toUpperCase();
+    req.tenantId = (tenant || 'master').toUpperCase();
     // Convenience helper: req.model('Dashboard') → tenant-scoped Mongoose model
     req.model = (modelName) => getModel(req, modelName);
     next();

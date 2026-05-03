@@ -216,15 +216,43 @@ async function runRecons() {
 
 /**
  * Start the cron-based scheduler for alerts AND subscriptions.
- * Runs a sweep every minute; individual frequencies checked inside.
+ *
+ * NOTE: The scheduler uses the default (global) Mongoose connection which is
+ * only established in SKIP_AUTH / dev mode. In production (multi-tenant), DB
+ * connections are per-request via tenant-db.service.js and there is no single
+ * default connection, so the scheduler must NOT be started — every query would
+ * buffer indefinitely and time out.
+ *
+ * Pass a `tenantId` to run against a specific tenant's DB (future enhancement).
  */
 function startScheduler() {
-  cron.schedule('* * * * *', () => {
-    runAlerts().catch((err) => console.error('Alert scheduler error:', err.message));
-    runSubscriptions().catch((err) => console.error('Subscription scheduler error:', err.message));
-    runRecons().catch((err) => console.error('Recon scheduler error:', err.message));
-  });
-  console.log('Alert + subscription + recon scheduler started');
+  const mongoose = require('mongoose');
+
+  // Only run if the default connection is (or will be) available.
+  // READY states: 1 = connected, 2 = connecting
+  const state = mongoose.connection.readyState;
+  if (state === 0) {
+    // No default connection configured — skip silently in production.
+    console.log('[scheduler] No default MongoDB connection — scheduler disabled (multi-tenant mode).');
+    return;
+  }
+
+  const startCron = () => {
+    cron.schedule('* * * * *', () => {
+      runAlerts().catch((err) => console.error('Alert scheduler error:', err.message));
+      runSubscriptions().catch((err) => console.error('Subscription scheduler error:', err.message));
+      runRecons().catch((err) => console.error('Recon scheduler error:', err.message));
+    });
+    console.log('[scheduler] Alert + subscription + recon scheduler started');
+  };
+
+  if (state === 1) {
+    // Already connected — start immediately.
+    startCron();
+  } else {
+    // Connecting — wait for the open event.
+    mongoose.connection.once('open', startCron);
+  }
 }
 
 module.exports = { startScheduler, runAlerts, runSubscriptions, runRecons };

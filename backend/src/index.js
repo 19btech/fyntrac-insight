@@ -56,13 +56,22 @@ app.use(express.json({ limit: '32mb' }));
 if (process.env.SKIP_AUTH === 'true' && process.env.MONGODB_URI) {
   mongoose
     .connect(process.env.MONGODB_URI)
-    .then(() => console.log('[dev] Connected to default metadata MongoDB (SKIP_AUTH mode)'))
+    .then(() => {
+      console.log('[dev] Connected to default metadata MongoDB (SKIP_AUTH mode)');
+      // Start scheduler only after the DB connection is open.
+      alertService.startScheduler();
+    })
     .catch((err) => console.error('MongoDB connection error:', err));
 }
 
 // Public routes (no auth)
 app.use('/api/share', shareRoutes);
 app.use('/api/embed', embedRoutes); // v60 static embedding (signed JWT)
+
+// Health check — MUST be before authMiddleware so Docker / load-balancer
+// probes succeed without a Bearer token.
+app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
 // Protected routes — auth then tenant DB resolution
 app.use('/api', authMiddleware);
@@ -84,9 +93,7 @@ app.use('/api/models', modelRoutes);
 app.use('/api/recons', reconRoutes);
 app.use('/api/trash', trashRoutes);
 
-// Health check
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
-app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+
 
 // Global error handler — keeps process alive on Mongo / unexpected errors
 app.use((err, _req, res, _next) => {
@@ -101,7 +108,8 @@ process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err.message);
 });
 
-// Start alert scheduler
+// Start scheduler — the function itself checks whether a default connection
+// exists and disables itself gracefully in multi-tenant (production) mode.
 alertService.startScheduler();
 
 app.listen(PORT, () => console.log(`Fyntrac Analytics backend running on port ${PORT}`));

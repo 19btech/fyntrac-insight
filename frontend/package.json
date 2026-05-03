@@ -1,0 +1,42 @@
+{
+  "name": "fyntrac-analytics-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@emotion/react": "^11.13.5",
+    "@emotion/styled": "^11.13.5",
+    "@monaco-editor/react": "^4.6.0",
+    "@mui/icons-material": "^7.3.4",
+    "@mui/material": "^7.3.4",
+    "@mui/system": "^7.3.4",
+    "@mui/x-charts": "^7.29.1",
+    "axios": "^1.6.2",
+    "html2canvas": "^1.4.1",
+    "json2csv": "^6.0.0-alpha.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-grid-layout": "^1.4.4",
+    "react-markdown": "^9.1.0",
+    "react-router-dom": "^6.20.1",
+    "react-scripts": "5.0.1",
+    "remark-gfm": "^4.0.1",
+    "zustand": "^4.4.7"
+  },
+  "proxy": "http://localhost:4000",
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}

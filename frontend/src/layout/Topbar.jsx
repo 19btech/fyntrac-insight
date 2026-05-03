@@ -164,10 +164,24 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
 
   return (
     <AppBar position="fixed" elevation={0}
-      sx={{ height, zIndex: 1100, top: 0, left: leftOffset, right: 0, transition: 'left 0.2s ease' }}>
-      <Toolbar sx={{ height, minHeight: `${height}px !important`, px: 2, position: 'relative' }}>
-        {/* LEFT zone: hamburger + breadcrumbs */}
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ flex: '0 1 auto', minWidth: 0 }}>
+      sx={{
+        height,
+        zIndex: 1100,
+        top: 0,
+        left: leftOffset,
+        // width must be explicitly calculated — MUI AppBar defaults to width:100%
+        // which causes it to overflow the viewport by leftOffset pixels when left is set.
+        width: `calc(100% - ${leftOffset}px)`,
+        transition: 'left 0.2s ease, width 0.2s ease',
+      }}>
+      <Toolbar sx={{
+        height, minHeight: `${height}px !important`, px: 2,
+        display: 'flex', alignItems: 'center', gap: 1,
+      }}>
+
+        {/* LEFT zone: hamburger + breadcrumbs — shrinks but never pushes right zone off screen */}
+        <Stack direction="row" alignItems="center" spacing={1}
+          sx={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
           <IconButton onClick={onMenuClick} size="small" sx={{ color: 'text.secondary', flexShrink: 0 }}>
             <MenuIcon />
           </IconButton>
@@ -190,15 +204,8 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
           </Box>
         </Stack>
 
-        {/* CENTRE zone: search bar — absolutely centred in the toolbar */}
-        <Box sx={{
-          position: 'absolute',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: '100%',
-          maxWidth: 520,
-          px: 1,
-        }}>
+        {/* CENTRE zone: search bar — grows but won't overflow left/right zones */}
+        <Box sx={{ flex: '2 1 0', minWidth: 0, maxWidth: 520, px: 1 }}>
           <Autocomplete
           freeSolo openOnFocus
           options={suggestions}
@@ -272,8 +279,9 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
         />
         </Box>
 
-        {/* RIGHT zone: user profile pill */}
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ ml: 'auto', flexShrink: 0, pl: 2 }}>
+        {/* RIGHT zone: user profile pill — fixed size, never shrinks or clips */}
+        <Stack direction="row" alignItems="center" spacing={1}
+          sx={{ flex: '1 1 0', justifyContent: 'flex-end', flexShrink: 0, minWidth: 0 }}>
           {firstName && (
             <Box sx={{
               display: 'flex',
@@ -283,11 +291,17 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
               py: 0.5,
               px: 1.5,
               borderRadius: 3,
+              flexShrink: 0,       // never compress the pill
+              maxWidth: 220,       // cap width so it doesn't grow too wide
+              overflow: 'hidden',
             }}>
-              <Avatar sx={{ bgcolor: '#2563EB', width: 28, height: 28, fontSize: 14, fontWeight: 700 }}>
+              <Avatar sx={{ bgcolor: '#2563EB', width: 28, height: 28, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
                 {firstName[0].toUpperCase()}
               </Avatar>
-              <Typography variant="subtitle2" sx={{ color: 'text.primary', lineHeight: 1, fontWeight: 500, whiteSpace: 'nowrap' }}>
+              <Typography variant="subtitle2" sx={{
+                color: 'text.primary', lineHeight: 1, fontWeight: 500,
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              }}>
                 {firstName}{tenant && tenant !== 'master' ? ` / ${tenant}` : ''}
               </Typography>
             </Box>

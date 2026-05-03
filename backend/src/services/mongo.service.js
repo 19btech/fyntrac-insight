@@ -1,33 +1,80 @@
 const mongoose = require('mongoose');
 const { MongoClient } = require('mongodb');
 
-let targetClient = null;
-let targetDb = null;
-let connectPromise = null; // ensures concurrent callers await the same handshake
+// ── Target (financial data) DB — per-tenant connection cache ──────────────────
+// DB name pattern: FYNTRAC_DATA_<TENANT_UPPER>  (mirrors DSL's DSL_STUDIO_<TENANT>)
+const TARGET_DB_PREFIX = 'FYNTRAC_DATA_';
+
+/** @type {Map<string, { client: MongoClient, db: import('mongodb').Db, promise: Promise }>} */
+const _targetConns = new Map();
 
 /**
- * Initialize a native MongoDB driver connection to the target data source.
- * Separate from the Mongoose metadata connection.
+ * Get (or lazily create) the native MongoClient connection for a tenant's
+ * financial data database.
  *
- * Uses a shared promise so that if multiple requests arrive before the first
- * connection completes, they all await the same handshake instead of each
- * spawning a new MongoClient (which would leave targetDb null for the
- * subsequent callers and cause a "Cannot read properties of null" crash).
+ * @param {string} tenant - e.g. 'master', 'acme'
+ * @returns {Promise<import('mongodb').Db>}
  */
+async function getTargetDb(tenant) {
+  const key = (tenant || 'MASTER').toUpperCase();
+  if (_targetConns.has(key)) {
+    const entry = _targetConns.get(key);
+    if (entry.db) return entry.db;
+    await entry.promise;
+    return _targetConns.get(key).db;
+  }
+
+  // Strip database name from TARGET_MONGODB_URI and substitute tenant DB
+  const rawUri = process.env.TARGET_MONGODB_URI || 'mongodb://localhost:27017/fyntrac_data';
+  let baseUri;
+  try {
+    const url = new URL(rawUri);
+    url.pathname = '/';
+    const qIdx = rawUri.indexOf('?');
+    if (qIdx !== -1) url.search = rawUri.slice(qIdx);
+    baseUri = url.toString().replace(/\/$/, '');
+  } catch {
+    baseUri = rawUri.replace(/\/[^/?]+(\?|$)/, '');
+  }
+
+  const dbName = `${TARGET_DB_PREFIX}${key}`;
+  const uri = `${baseUri}/${dbName}`;
+
+  console.log(`[mongo.service] Creating target DB connection for tenant '${key}' → ${dbName}`);
+
+  const client = new MongoClient(uri, { maxPoolSize: 30 });
+  const entry = { client, db: null, promise: null };
+  entry.promise = client.connect().then(() => {
+    entry.db = client.db();
+    console.log(`[mongo.service] Connected to target DB: ${dbName}`);
+  });
+  _targetConns.set(key, entry);
+  await entry.promise;
+  return entry.db;
+}
+
+// ── Legacy single-connection helpers (kept for backward compat) ───────────────
+// Used only when no tenant context is available (e.g. share/embed public routes)
+let _defaultClient = null;
+let _defaultDb = null;
+let _defaultConnPromise = null;
+
 async function connectTarget() {
-  if (targetDb) return; // fast path after first successful connect
-  if (!connectPromise) {
-    connectPromise = (async () => {
-      targetClient = new MongoClient(process.env.TARGET_MONGODB_URI, {
+  if (_defaultDb) return;
+  if (!_defaultConnPromise) {
+    _defaultConnPromise = (async () => {
+      _defaultClient = new MongoClient(process.env.TARGET_MONGODB_URI || 'mongodb://localhost:27017/fyntrac_data', {
         maxPoolSize: 30,
       });
-      await targetClient.connect();
-      targetDb = targetClient.db();
-      console.log('Connected to target MongoDB');
+      await _defaultClient.connect();
+      _defaultDb = _defaultClient.db();
+      console.log('Connected to default target MongoDB');
     })();
   }
-  await connectPromise;
+  await _defaultConnPromise;
 }
+
+
 
 /**
  * Build the mandatory tenant + row-level-security $match stage.
@@ -107,8 +154,9 @@ async function getAttributeTypes(user) {
   if (cached && now - cached.ts < ATTRIBUTE_TYPES_TTL_MS) return cached.map;
   const map = {};
   try {
+    const db = await getTargetDb(tenantKey);
     const securityStage = buildSecurityFilter(user || { tenantId: tenantKey });
-    const docs = await targetDb
+    const docs = await db
       .collection('Attributes')
       .aggregate([securityStage, { $project: { attributeName: 1, dataType: 1 } }])
       .toArray();
@@ -138,8 +186,9 @@ async function getCustomTableTypes(user) {
   if (cached && now - cached.ts < CUSTOM_TABLE_TYPES_TTL_MS) return cached.byTable;
   const byTable = {};
   try {
+    const db = await getTargetDb(tenantKey);
     const securityStage = buildSecurityFilter(user || { tenantId: tenantKey });
-    const defs = await targetDb
+    const defs = await db
       .collection('CustomTableDefinitions')
       .aggregate([securityStage, { $project: { tableName: 1, columns: 1 } }])
       .toArray();
@@ -285,7 +334,7 @@ function validatePipeline(pipeline, tenantId) {
  * Automatically prepends tenant $match as the FIRST stage.
  */
 async function executePipeline(collectionName, rawPipeline, user) {
-  await connectTarget();
+  const db = await getTargetDb(user.tenantId);
   validatePipeline(rawPipeline, user.tenantId);
 
   const securityStage = buildSecurityFilter(user);
@@ -295,7 +344,7 @@ async function executePipeline(collectionName, rawPipeline, user) {
   const pipeline = [securityStage, ...buildExpansionStages(attributeTypes, customColumnTypes), ...rawPipeline];
 
   const start = Date.now();
-  const col = targetDb.collection(collectionName);
+  const col = db.collection(collectionName);
   const raw = await col.aggregate(pipeline, { allowDiskUse: true, maxTimeMS: 30000 }).toArray();
   const data = raw.map(normalizeBson);
   const executionTime = Date.now() - start;
@@ -391,23 +440,24 @@ function isNumericWrapperField(fullKey) {
 }
 
 /**
- * List all collection names available in the target database.
+ * List all collection names available in the target database for a given tenant.
  */
-async function getCollections() {
-  await connectTarget();
-  const cols = await targetDb.listCollections().toArray();
+async function getCollections(user) {
+  const db = await getTargetDb((user && user.tenantId) || 'master');
+  const cols = await db.listCollections().toArray();
   return cols.map((c) => c.name).filter((n) => !isExcludedCollection(n)).sort((a, b) => a.localeCompare(b));
 }
 
 /**
  * Sample up to 100 documents from a collection and infer field types.
  */
-async function inferSchema(collectionName, user) {  await connectTarget();
+async function inferSchema(collectionName, user) {
+  const db = await getTargetDb(user.tenantId);
   const securityStage = buildSecurityFilter(user);
   const attributeTypes = await getAttributeTypes(user);
   const customByTable = await getCustomTableTypes(user);
   const customColumnTypes = getCustomTableColumnTypes(collectionName, customByTable);
-  const col = targetDb.collection(collectionName);
+  const col = db.collection(collectionName);
   const docs = await col.aggregate([securityStage, ...buildExpansionStages(attributeTypes, customColumnTypes), { $sample: { size: 500 } }]).toArray();
 
   const fieldMap = {};
@@ -612,4 +662,4 @@ function resolveType(typesSet) {
   return 'string';
 }
 
-module.exports = { executePipeline, getCollections, inferSchema, inferSchemaFromPipeline, connectTarget };
+module.exports = { executePipeline, getCollections, inferSchema, inferSchemaFromPipeline, connectTarget, getTargetDb };

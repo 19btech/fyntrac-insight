@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { registerSchema } = require('../services/tenant-db.service');
 
 const cardSchema = new mongoose.Schema(
   {
@@ -64,4 +65,9 @@ const dashboardSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Register schema for per-tenant connection model compilation
+registerSchema('Dashboard', dashboardSchema);
+
+// Global model (dev/SKIP_AUTH fallback — real traffic uses tenant-db.service getModel)
 module.exports = mongoose.model('Dashboard', dashboardSchema);
+module.exports.schema = dashboardSchema;

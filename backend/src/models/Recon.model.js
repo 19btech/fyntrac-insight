@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { registerSchema } = require('../services/tenant-db.service');
 
 /**
  * Recon — saved reconciliation configuration.
@@ -90,4 +91,9 @@ const reconSchema = new mongoose.Schema({
 
 reconSchema.index({ tenantId: 1, name: 1 });
 
+// Register schema for per-tenant connection model compilation
+registerSchema('Recon', reconSchema);
+
+// Global model (dev/SKIP_AUTH fallback — real traffic uses tenant-db.service getModel)
 module.exports = mongoose.model('Recon', reconSchema);
+module.exports.schema = reconSchema;

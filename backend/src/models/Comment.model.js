@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { registerSchema } = require('../services/tenant-db.service');
 
 /**
  * Comments / @mentions on dashboards or questions (Metabase v60).
@@ -20,4 +21,9 @@ const commentSchema = new mongoose.Schema(
 
 commentSchema.index({ tenantId: 1, itemType: 1, itemId: 1 });
 
+// Register schema for per-tenant connection model compilation
+registerSchema('Comment', commentSchema);
+
+// Global model (dev/SKIP_AUTH fallback — real traffic uses tenant-db.service getModel)
 module.exports = mongoose.model('Comment', commentSchema);
+module.exports.schema = commentSchema;

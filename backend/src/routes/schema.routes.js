@@ -1,13 +1,11 @@
 const router = require('express').Router();
 const schemaService = require('../services/schema.service');
 const mongoService = require('../services/mongo.service');
-const SavedModel = require('../models/SavedModel.model');
-const Question = require('../models/Question.model');
 
 // GET /api/schema/collections
 router.get('/collections', async (req, res) => {
   try {
-    const collections = await schemaService.listCollections();
+    const collections = await schemaService.listCollections(req.user);
     res.json(collections);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -41,14 +39,14 @@ router.get('/source/fields', async (req, res) => {
     }
     if (kind === 'dataset') {
       if (!id) return res.status(400).json({ error: 'id is required for dataset source' });
-      const ds = await SavedModel.findOne({ _id: id, tenantId: req.user.tenantId, archived: { $ne: true } });
+      const ds = await req.model('SavedModel').findOne({ _id: id, tenantId: req.user.tenantId, archived: { $ne: true } });
       if (!ds) return res.status(404).json({ error: 'Dataset not found' });
       const fields = await mongoService.inferSchemaFromPipeline(ds.sourceCollection, ds.pipeline || [], req.user);
       return res.json(fields);
     }
     if (kind === 'question') {
       if (!id) return res.status(400).json({ error: 'id is required for report source' });
-      const q = await Question.findOne({ _id: id, tenantId: req.user.tenantId, archived: { $ne: true } });
+      const q = await req.model('Question').findOne({ _id: id, tenantId: req.user.tenantId, archived: { $ne: true } });
       if (!q) return res.status(404).json({ error: 'Report not found' });
       const cfg = q.queryConfig || {};
       if (!cfg.collection) return res.status(400).json({ error: 'Report has no collection' });
@@ -123,12 +121,12 @@ router.get('/source/values', async (req, res) => {
       collection = name; prefix = [];
     } else if (kind === 'dataset') {
       if (!id) return res.status(400).json({ error: 'id is required for dataset source' });
-      const ds = await SavedModel.findOne({ _id: id, tenantId: req.user.tenantId, archived: { $ne: true } });
+      const ds = await req.model('SavedModel').findOne({ _id: id, tenantId: req.user.tenantId, archived: { $ne: true } });
       if (!ds) return res.status(404).json({ error: 'Dataset not found' });
       collection = ds.sourceCollection; prefix = ds.pipeline || [];
     } else if (kind === 'question') {
       if (!id) return res.status(400).json({ error: 'id is required for report source' });
-      const q = await Question.findOne({ _id: id, tenantId: req.user.tenantId, archived: { $ne: true } });
+      const q = await req.model('Question').findOne({ _id: id, tenantId: req.user.tenantId, archived: { $ne: true } });
       if (!q) return res.status(404).json({ error: 'Report not found' });
       const cfg = q.queryConfig || {};
       if (!cfg.collection) return res.status(400).json({ error: 'Report has no collection' });

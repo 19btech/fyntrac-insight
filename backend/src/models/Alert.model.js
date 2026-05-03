@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { registerSchema } = require('../services/tenant-db.service');
 
 const alertSchema = new mongoose.Schema(
   {
@@ -22,4 +23,9 @@ const alertSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Register schema for per-tenant connection model compilation
+registerSchema('Alert', alertSchema);
+
+// Global model (dev/SKIP_AUTH fallback — real traffic uses tenant-db.service getModel)
 module.exports = mongoose.model('Alert', alertSchema);
+module.exports.schema = alertSchema;

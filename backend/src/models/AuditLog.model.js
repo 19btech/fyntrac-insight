@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { registerSchema } = require('../services/tenant-db.service');
 
 const auditLogSchema = new mongoose.Schema(
   {
@@ -15,4 +16,9 @@ const auditLogSchema = new mongoose.Schema(
 
 auditLogSchema.index({ tenantId: 1, createdAt: -1 });
 
+// Register schema for per-tenant connection model compilation
+registerSchema('AuditLog', auditLogSchema);
+
+// Global model (dev/SKIP_AUTH fallback — real traffic uses tenant-db.service getModel)
 module.exports = mongoose.model('AuditLog', auditLogSchema);
+module.exports.schema = auditLogSchema;

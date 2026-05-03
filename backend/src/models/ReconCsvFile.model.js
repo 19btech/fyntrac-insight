@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { registerSchema } = require('../services/tenant-db.service');
 
 /**
  * Uploaded CSV stored as raw text + a sample of parsed rows so the recon
@@ -22,4 +23,9 @@ const reconCsvSchema = new mongoose.Schema({
   parsedRows: { type: [mongoose.Schema.Types.Mixed] },
 }, { timestamps: true });
 
+// Register schema for per-tenant connection model compilation
+registerSchema('ReconCsvFile', reconCsvSchema);
+
+// Global model (dev/SKIP_AUTH fallback — real traffic uses tenant-db.service getModel)
 module.exports = mongoose.model('ReconCsvFile', reconCsvSchema);
+module.exports.schema = reconCsvSchema;

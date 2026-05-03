@@ -2,9 +2,10 @@ const mongoService = require('./mongo.service');
 
 /**
  * Return all collections available for a tenant.
+ * @param {object} user - req.user (needed for tenant routing)
  */
-async function listCollections() {
-  return mongoService.getCollections();
+async function listCollections(user) {
+  return mongoService.getCollections(user);
 }
 
 /**

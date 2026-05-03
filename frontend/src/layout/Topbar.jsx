@@ -4,6 +4,7 @@ import {
   AppBar, Toolbar, IconButton, Box, Typography, Avatar, Tooltip, Menu, MenuItem,
   Breadcrumbs, Link, Button, Autocomplete, TextField, InputAdornment, Chip, Stack,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import MenuIcon from '@mui/icons-material/Menu';
 import SearchIcon from '@mui/icons-material/Search';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -64,6 +65,49 @@ function useSearchIndex() {
   return items;
 }
 
+/**
+ * Read firstName and tenant from the URL query string on first load.
+ * Persists to sessionStorage so the values survive in-app navigation
+ * (the ?firstName=...&tenant=... params are only present on the initial
+ * redirect from fyntrac-web).
+ */
+function useProfile() {
+  const [firstName] = useState(() => {
+    try {
+      const urlVal = new URLSearchParams(window.location.search).get('firstName');
+      if (urlVal) {
+        sessionStorage.setItem('insight_firstName', urlVal);
+        return urlVal;
+      }
+      return sessionStorage.getItem('insight_firstName') || '';
+    } catch { return ''; }
+  });
+
+  const [tenant] = useState(() => {
+    try {
+      const urlVal = new URLSearchParams(window.location.search).get('tenant');
+      if (urlVal) {
+        sessionStorage.setItem('insight_tenant', urlVal);
+        return urlVal;
+      }
+      return sessionStorage.getItem('insight_tenant') || '';
+    } catch { return ''; }
+  });
+
+  // Strip the params from the URL bar (one-time, on mount)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('firstName') || params.get('tenant')) {
+      params.delete('firstName');
+      params.delete('tenant');
+      const clean = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+      window.history.replaceState({}, document.title, clean);
+    }
+  }, []);
+
+  return { firstName, tenant };
+}
+
 export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick }) {
   const [anchorEl, setAnchorEl] = useState(null);
   const [searchInput, setSearchInput] = useState('');
@@ -73,6 +117,7 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
   const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
   const metaKey = isMac ? '\u2318' : 'Ctrl';
   const items = useSearchIndex();
+  const { firstName, tenant } = useProfile();
 
   const suggestions = useMemo(() => {
     const term = searchInput.trim().toLowerCase();
@@ -226,6 +271,28 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
           }}
         />
         </Box>
+
+        {/* RIGHT zone: user profile pill */}
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ ml: 'auto', flexShrink: 0, pl: 2 }}>
+          {firstName && (
+            <Box sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+              bgcolor: alpha('#919EAB', 0.12),
+              py: 0.5,
+              px: 1.5,
+              borderRadius: 3,
+            }}>
+              <Avatar sx={{ bgcolor: '#2563EB', width: 28, height: 28, fontSize: 14, fontWeight: 700 }}>
+                {firstName[0].toUpperCase()}
+              </Avatar>
+              <Typography variant="subtitle2" sx={{ color: 'text.primary', lineHeight: 1, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                {firstName}{tenant && tenant !== 'master' ? ` / ${tenant}` : ''}
+              </Typography>
+            </Box>
+          )}
+        </Stack>
 
       </Toolbar>
     </AppBar>

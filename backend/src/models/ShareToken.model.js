@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { registerSchema } = require('../services/tenant-db.service');
 
 const shareTokenSchema = new mongoose.Schema(
   {
@@ -11,4 +12,9 @@ const shareTokenSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Register schema for per-tenant connection model compilation
+registerSchema('ShareToken', shareTokenSchema);
+
+// Global model (dev/SKIP_AUTH fallback — real traffic uses tenant-db.service getModel)
 module.exports = mongoose.model('ShareToken', shareTokenSchema);
+module.exports.schema = shareTokenSchema;

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { registerSchema } = require('../services/tenant-db.service');
 
 /**
  * One execution of a Recon. Stores summary + paginated row results inline
@@ -54,4 +55,9 @@ const reconRunSchema = new mongoose.Schema({
 // Compound index for efficient per-recon history queries
 reconRunSchema.index({ reconId: 1, tenantId: 1, runAt: -1 });
 
+// Register schema for per-tenant connection model compilation
+registerSchema('ReconRun', reconRunSchema);
+
+// Global model (dev/SKIP_AUTH fallback — real traffic uses tenant-db.service getModel)
 module.exports = mongoose.model('ReconRun', reconRunSchema);
+module.exports.schema = reconRunSchema;

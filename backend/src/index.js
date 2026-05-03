@@ -4,6 +4,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 
 const authMiddleware = require('./middleware/auth.middleware');
+const { tenantDbMiddleware } = require('./services/tenant-db.service');
 const queryRoutes = require('./routes/query.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
 const questionRoutes = require('./routes/question.routes');
@@ -49,18 +50,23 @@ app.use(
 // CSV upload payloads can be up to ~25MB.
 app.use(express.json({ limit: '32mb' }));
 
-// Connect to metadata MongoDB
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => console.log('Connected to metadata MongoDB'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+// NOTE: Per-tenant metadata MongoDB connections are managed by tenant-db.service.js.
+// A default mongoose connection is kept here only as a dev fallback when
+// SKIP_AUTH=true and no X-Tenant header is present.
+if (process.env.SKIP_AUTH === 'true' && process.env.MONGODB_URI) {
+  mongoose
+    .connect(process.env.MONGODB_URI)
+    .then(() => console.log('[dev] Connected to default metadata MongoDB (SKIP_AUTH mode)'))
+    .catch((err) => console.error('MongoDB connection error:', err));
+}
 
 // Public routes (no auth)
 app.use('/api/share', shareRoutes);
 app.use('/api/embed', embedRoutes); // v60 static embedding (signed JWT)
 
-// Protected routes
+// Protected routes — auth then tenant DB resolution
 app.use('/api', authMiddleware);
+app.use('/api', tenantDbMiddleware);
 app.use('/api/query', queryRoutes);
 app.use('/api/dashboards', dashboardRoutes);
 app.use('/api/questions', questionRoutes);

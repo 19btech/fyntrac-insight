@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { registerSchema } = require('../services/tenant-db.service');
 
 /**
  * Per-user AI provider configuration.
@@ -45,4 +46,9 @@ const AISettingsSchema = new mongoose.Schema(
 
 AISettingsSchema.index({ tenantId: 1, userId: 1 }, { unique: true });
 
+// Register schema for per-tenant connection model compilation
+registerSchema('AISettings', AISettingsSchema);
+
+// Global model (dev/SKIP_AUTH fallback — real traffic uses tenant-db.service getModel)
 module.exports = mongoose.model('AISettings', AISettingsSchema);
+module.exports.schema = AISettingsSchema;

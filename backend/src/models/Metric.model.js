@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { registerSchema } = require('../services/tenant-db.service');
 
 /**
  * KPI / Metric.
@@ -60,7 +61,12 @@ const metricSchema = new mongoose.Schema(
 // Compound index for the common list + eval query patterns.
 metricSchema.index({ tenantId: 1, archived: 1, updatedAt: -1 });
 
+// Register schema for per-tenant connection model compilation
+registerSchema('Metric', metricSchema);
+
+// Global model (dev/SKIP_AUTH fallback — real traffic uses tenant-db.service getModel)
 module.exports = mongoose.model('Metric', metricSchema);
+module.exports.schema = metricSchema;
 
 // ─── Recommended source-collection indexes (run once in MongoDB shell) ──────
 //

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { registerSchema } = require('../services/tenant-db.service');
 
 /**
  * Dashboard subscription — Metabase "Pulse"-style scheduled email of a dashboard
@@ -18,4 +19,9 @@ const subscriptionSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Register schema for per-tenant connection model compilation
+registerSchema('Subscription', subscriptionSchema);
+
+// Global model (dev/SKIP_AUTH fallback — real traffic uses tenant-db.service getModel)
 module.exports = mongoose.model('Subscription', subscriptionSchema);
+module.exports.schema = subscriptionSchema;

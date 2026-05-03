@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  fyntrac-insight:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fyntrac-insight
+    # Gateway routes /api/insight/** → this service (INSIGHT_SERVICE_URI=http://fyntrac-insight:4000)
+    ports:
+      - "4000:4000"
+    environment:
+      # MongoDB base URIs — db name is substituted per-tenant at runtime:
+      #   Metadata : FYNTRAC_INSIGHT_<TENANT>
+      #   Data     : FYNTRAC_DATA_<TENANT>
+      - MONGODB_URI=mongodb://root:${MONGODB_PSWD}@host.docker.internal:${MONGODB_PORT:-27017}/fyntrac_insight_master?authSource=admin
+      - TARGET_MONGODB_URI=mongodb://root:${MONGODB_PSWD}@host.docker.internal:${MONGODB_PORT:-27017}/fyntrac_data_master?authSource=admin
+      # SSO — ZITADEL JWT validation
+      - ZITADEL_ISSUER_URI=${ZITADEL_ISSUER_URI:-}
+      - ZITADEL_PROJECT_ID=${ZITADEL_PROJECT_ID:-}
+      # CORS — allow the frontend origin
+      - CORS_ORIGIN=${GATEWAY_URI:-http://localhost:8585}
+      # Optional per-service settings
+      - PORT=4000
+      - NODE_ENV=production
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  fyntrac-insight-ui:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: fyntrac-insight-ui
+    ports:
+      - "3001:80"
+    environment:
+      # Nginx proxies /api/ → GATEWAY_URI (the fyntrac API gateway)
+      - GATEWAY_URI=${GATEWAY_URI:-http://localhost:8585}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - fyntrac-insight

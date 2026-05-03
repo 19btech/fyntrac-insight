@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { registerSchema } = require('../services/tenant-db.service');
 
 /**
  * A "Saved Model" is a named, reusable aggregation pipeline acting as a virtual collection.
@@ -43,4 +44,9 @@ modelSchema.index({ tenantId: 1, name: 1 });
 // Covers the default list sort: pinned DESC, updatedAt DESC, excluding archived.
 modelSchema.index({ tenantId: 1, archived: 1, pinned: -1, updatedAt: -1 });
 
+// Register schema for per-tenant connection model compilation
+registerSchema('SavedModel', modelSchema);
+
+// Global model (dev/SKIP_AUTH fallback — real traffic uses tenant-db.service getModel)
 module.exports = mongoose.model('SavedModel', modelSchema);
+module.exports.schema = modelSchema;

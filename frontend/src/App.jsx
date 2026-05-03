@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppShell from './layout/AppShell';
 import Home from './pages/Home';
@@ -21,28 +21,7 @@ import Recons from './pages/Recons';
 import ReconEditor from './pages/ReconEditor';
 import ReconRun from './pages/ReconRun';
 
-/**
- * On initial load the JWT is expected as ?token=<jwt> query param
- * (set by the Fyntrac main app iframe/redirect).
- * Store it in sessionStorage for subsequent API calls.
- */
-function useJwt() {
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
-    if (token) {
-      sessionStorage.setItem('fyntrac_jwt', token);
-      // Clean the token from the URL without a page reload
-      const url = new URL(window.location.href);
-      url.searchParams.delete('token');
-      window.history.replaceState({}, '', url.toString());
-    }
-  }, []);
-}
-
 export default function App() {
-  useJwt();
-
   return (
     <BrowserRouter>
       <Routes>

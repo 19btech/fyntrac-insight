@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Drawer, Box, Typography, IconButton, TextField, Divider,
-  CircularProgress, Tooltip, Stack, Button,
+  CircularProgress, Tooltip, Stack, Button, Chip
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import SendIcon from '@mui/icons-material/Send';

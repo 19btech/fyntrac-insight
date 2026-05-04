@@ -32,7 +32,7 @@ router.post('/csv', async (req, res) => {
     const { columns, rows } = reconService.parseCsv(raw);
     const types = reconService.inferTypes(columns, rows);
     const storedRows = rows.slice(0, MAX_CSV_STORED_ROWS);
-    const f = await ReconCsvFile.create({
+    const f = await req.model('ReconCsvFile').create({
       tenantId: req.user.tenantId,
       filename: filename || 'upload.csv',
       uploadedBy: req.user.userId,
@@ -58,7 +58,7 @@ router.post('/csv', async (req, res) => {
 // GET /api/recons/csv/:id → metadata + sample (not raw, kept light)
 router.get('/csv/:id', async (req, res) => {
   try {
-    const f = await ReconCsvFile.findOne({ _id: req.params.id, tenantId: req.user.tenantId });
+    const f = await req.model('ReconCsvFile').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
     if (!f) return res.status(404).json({ error: 'CSV not found' });
     res.json({
       _id: f._id, filename: f.filename, columns: f.columns,
@@ -100,7 +100,7 @@ router.post('/suggest-mapping', async (req, res) => {
 
 router.get('/', async (req, res) => {
   try {
-    const recons = await Recon.find({
+    const recons = await req.model('Recon').find({
       tenantId: req.user.tenantId,
       archived: { $ne: true },
     }).sort({ updatedAt: -1 });
@@ -116,7 +116,7 @@ router.post('/', async (req, res) => {
     // Hydrate display names so list views are nice
     body.sourceA.displayName = await displayName(body.sourceA, req.user);
     body.sourceB.displayName = await displayName(body.sourceB, req.user);
-    const recon = await Recon.create({
+    const recon = await req.model('Recon').create({
       ...body,
       tenantId: req.user.tenantId,
       createdBy: req.user.userId,
@@ -127,7 +127,7 @@ router.post('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    const recon = await Recon.findOne({ _id: req.params.id, tenantId: req.user.tenantId });
+    const recon = await req.model('Recon').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
     if (!recon) return res.status(404).json({ error: 'Recon not found' });
     res.json(recon);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -135,7 +135,7 @@ router.get('/:id', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const recon = await Recon.findOne({ _id: req.params.id, tenantId: req.user.tenantId });
+    const recon = await req.model('Recon').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
     if (!recon) return res.status(404).json({ error: 'Recon not found' });
     const fields = ['name', 'description', 'sourceA', 'sourceB', 'mapping', 'options', 'schedule', 'pinnedNote'];
     for (const f of fields) if (req.body[f] !== undefined) recon[f] = req.body[f];
@@ -148,7 +148,7 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    const recon = await Recon.findOneAndUpdate(
+    const recon = await req.model('Recon').findOneAndUpdate(
       { _id: req.params.id, tenantId: req.user.tenantId },
       { archived: true, archivedAt: new Date() },
       { new: true }
@@ -162,7 +162,7 @@ router.delete('/:id', async (req, res) => {
 
 router.post('/:id/run', async (req, res) => {
   try {
-    const recon = await Recon.findOne({ _id: req.params.id, tenantId: req.user.tenantId });
+    const recon = await req.model('Recon').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
     if (!recon) return res.status(404).json({ error: 'Recon not found' });
 
     // Fetch the most-recent successful prior run so the engine can age
@@ -170,7 +170,7 @@ router.post('/:id/run', async (req, res) => {
     // run — aging is a nice-to-have, not a hard requirement.
     let previousRun = null;
     try {
-      previousRun = await ReconRun.findOne({
+      previousRun = await req.model('ReconRun').findOne({
         reconId: recon._id,
         tenantId: req.user.tenantId,
         error: { $in: [null, undefined, ''] },
@@ -180,7 +180,7 @@ router.post('/:id/run', async (req, res) => {
     let runRec;
     try {
       const result = await reconService.runRecon(recon, req.user, previousRun);
-      runRec = await ReconRun.create({
+      runRec = await req.model('ReconRun').create({
         reconId: recon._id,
         tenantId: req.user.tenantId,
         runBy: req.user.userId,
@@ -195,7 +195,7 @@ router.post('/:id/run', async (req, res) => {
       recon.lastRun = { at: new Date(), runId: String(runRec._id), summary: result.summary };
       await recon.save();
     } catch (e) {
-      runRec = await ReconRun.create({
+      runRec = await req.model('ReconRun').create({
         reconId: recon._id,
         tenantId: req.user.tenantId,
         runBy: req.user.userId,
@@ -212,7 +212,7 @@ router.post('/:id/run', async (req, res) => {
 
 router.get('/:id/runs', async (req, res) => {
   try {
-    const runs = await ReconRun.find({ reconId: req.params.id, tenantId: req.user.tenantId })
+    const runs = await req.model('ReconRun').find({ reconId: req.params.id, tenantId: req.user.tenantId })
       .sort({ runAt: -1 })
       .limit(50)
       .select('runAt runBy durationMs error summary');
@@ -222,7 +222,7 @@ router.get('/:id/runs', async (req, res) => {
 
 router.get('/runs/:runId', async (req, res) => {
   try {
-    const run = await ReconRun.findOne({ _id: req.params.runId, tenantId: req.user.tenantId });
+    const run = await req.model('ReconRun').findOne({ _id: req.params.runId, tenantId: req.user.tenantId });
     if (!run) return res.status(404).json({ error: 'Run not found' });
     const status = req.query.status; // matched | mismatched | only_a | only_b | undefined
     const limit = Math.min(Number(req.query.limit) || 200, 2000);
@@ -243,7 +243,7 @@ router.get('/runs/:runId', async (req, res) => {
 
 router.get('/runs/:runId/export', async (req, res) => {
   try {
-    const run = await ReconRun.findOne({ _id: req.params.runId, tenantId: req.user.tenantId });
+    const run = await req.model('ReconRun').findOne({ _id: req.params.runId, tenantId: req.user.tenantId });
     if (!run) return res.status(404).json({ error: 'Run not found' });
     const status = req.query.status; // optional
     let rows = run.rows || [];
@@ -282,7 +282,7 @@ router.patch('/runs/:runId/row', async (req, res) => {
   try {
     const { key, status, category, note } = req.body || {};
     if (key == null) return res.status(400).json({ error: 'key required' });
-    const run = await ReconRun.findOne({ _id: req.params.runId, tenantId: req.user.tenantId });
+    const run = await req.model('ReconRun').findOne({ _id: req.params.runId, tenantId: req.user.tenantId });
     if (!run) return res.status(404).json({ error: 'Run not found' });
     if (run.signOff?.certified) return res.status(409).json({ error: 'Run is signed off; unlock to edit' });
 
@@ -310,7 +310,7 @@ router.patch('/runs/:runId/row', async (req, res) => {
 router.post('/runs/:runId/signoff', async (req, res) => {
   try {
     const { note, certified } = req.body || {};
-    const run = await ReconRun.findOne({ _id: req.params.runId, tenantId: req.user.tenantId });
+    const run = await req.model('ReconRun').findOne({ _id: req.params.runId, tenantId: req.user.tenantId });
     if (!run) return res.status(404).json({ error: 'Run not found' });
     const wantCertified = certified === false ? false : true;
     run.signOff = {
@@ -328,11 +328,11 @@ router.post('/runs/:runId/signoff', async (req, res) => {
 async function displayName(side, user) {
   try {
     if (side.kind === 'dataset') {
-      const ds = await SavedModel.findOne({ _id: side.refId, tenantId: user.tenantId }).select('name');
+      const ds = await req.model('SavedModel').findOne({ _id: side.refId, tenantId: user.tenantId }).select('name');
       return ds?.name;
     }
     if (side.kind === 'csv') {
-      const f = await ReconCsvFile.findOne({ _id: side.refId, tenantId: user.tenantId }).select('filename');
+      const f = await req.model('ReconCsvFile').findOne({ _id: side.refId, tenantId: user.tenantId }).select('filename');
       return f?.filename;
     }
   } catch (_) { /* noop */ }

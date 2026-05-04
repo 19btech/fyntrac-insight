@@ -23,11 +23,11 @@ router.get('/audit', async (req, res) => {
     }
 
     const [logs, total] = await Promise.all([
-      AuditLog.find(filter)
+      req.model('AuditLog').find(filter)
         .sort({ createdAt: -1 })
         .skip(Number(skip))
         .limit(Math.min(Number(limit), 500)),
-      AuditLog.countDocuments(filter),
+      req.model('AuditLog').countDocuments(filter),
     ]);
 
     res.json({ logs, total, skip: Number(skip), limit: Number(limit) });
@@ -53,28 +53,28 @@ router.get('/audit/summary', async (req, res) => {
       avgExecTime,
       dailyActivity,
     ] = await Promise.all([
-      AuditLog.aggregate([
+      req.model('AuditLog').aggregate([
         { $match: base },
         { $group: { _id: '$action', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
         { $limit: 10 },
       ]),
 
-      AuditLog.aggregate([
+      req.model('AuditLog').aggregate([
         { $match: base },
         { $group: { _id: '$userId', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
         { $limit: 10 },
       ]),
 
-      AuditLog.aggregate([
+      req.model('AuditLog').aggregate([
         { $match: { ...base, executionTimeMs: { $exists: true } } },
         { $group: { _id: '$action', avgMs: { $avg: '$executionTimeMs' }, count: { $sum: 1 } } },
         { $sort: { avgMs: -1 } },
         { $limit: 10 },
       ]),
 
-      AuditLog.aggregate([
+      req.model('AuditLog').aggregate([
         { $match: base },
         {
           $group: {

@@ -10,10 +10,12 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # Proxy API requests to the gateway (fyntrac-insight backend via gateway)
-    # GATEWAY_URI is injected at container start via the nginx template mechanism.
-    location /api/ {
-        proxy_pass ${GATEWAY_URI};
+    # Proxy /api/insight/** → insight backend as /api/**
+    # Strips the /insight prefix (equivalent to gateway StripPrefix=2 minus /api).
+    # BACKEND_URI is injected at container start (default: http://insight:4000).
+    location /api/insight/ {
+        rewrite ^/api/insight/(.*) /api/$1 break;
+        proxy_pass ${BACKEND_URI};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -22,7 +24,17 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
-        # Disable buffering for SSE (AI streaming endpoints)
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+    }
+
+    # Fallback: proxy any other /api/ calls directly (e.g. health check)
+    location /api/ {
+        proxy_pass ${BACKEND_URI};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_buffering off;
         proxy_read_timeout 300s;
     }

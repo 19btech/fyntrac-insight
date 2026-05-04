@@ -64,12 +64,12 @@ async function resolveSource(metric, user) {
   let result;
   if (src.kind === 'dataset') {
     if (!src.id) throw new Error('source.id required for dataset source');
-    const ds = await SavedModel.findOne({ _id: src.id, tenantId: user.tenantId, archived: { $ne: true } });
+    const ds = await req.model('SavedModel').findOne({ _id: src.id, tenantId: user.tenantId, archived: { $ne: true } });
     if (!ds) throw new Error('Source dataset not found');
     result = { collection: ds.sourceCollection, prefix: ds.pipeline || [] };
   } else if (src.kind === 'question') {
     if (!src.id) throw new Error('source.id required for question source');
-    const q = await Question.findOne({ _id: src.id, tenantId: user.tenantId, archived: { $ne: true } });
+    const q = await req.model('Question').findOne({ _id: src.id, tenantId: user.tenantId, archived: { $ne: true } });
     if (!q) throw new Error('Source report not found');
     const cfg = q.queryConfig || {};
     if (!cfg.collection) throw new Error('Source report has no collection');
@@ -98,7 +98,7 @@ function extractValue(execResult) {
 // GET /api/metrics
 router.get('/', async (req, res) => {
   try {
-    const metrics = await Metric.find({ tenantId: req.user.tenantId, archived: { $ne: true } }).sort({ updatedAt: -1 });
+    const metrics = await req.model('Metric').find({ tenantId: req.user.tenantId, archived: { $ne: true } }).sort({ updatedAt: -1 });
     res.json(metrics);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -115,13 +115,13 @@ router.post('/', async (req, res) => {
     let normalizedSource = source && source.kind ? source : { kind: 'collection' };
     if (normalizedSource.kind === 'dataset') {
       if (!normalizedSource.id) return res.status(400).json({ error: 'source.id is required for dataset source' });
-      const ds = await SavedModel.findOne({ _id: normalizedSource.id, tenantId: req.user.tenantId });
+      const ds = await req.model('SavedModel').findOne({ _id: normalizedSource.id, tenantId: req.user.tenantId });
       if (!ds) return res.status(400).json({ error: 'Source dataset not found' });
       effectiveCollection = ds.sourceCollection;
       normalizedSource.name = ds.name;
     } else if (normalizedSource.kind === 'question') {
       if (!normalizedSource.id) return res.status(400).json({ error: 'source.id is required for report source' });
-      const q = await Question.findOne({ _id: normalizedSource.id, tenantId: req.user.tenantId });
+      const q = await req.model('Question').findOne({ _id: normalizedSource.id, tenantId: req.user.tenantId });
       if (!q) return res.status(400).json({ error: 'Source report not found' });
       effectiveCollection = q.queryConfig?.collection;
       normalizedSource.name = q.name;
@@ -130,7 +130,7 @@ router.post('/', async (req, res) => {
     if (!definition?.numerator && (!Array.isArray(pipeline) || pipeline.length === 0)) {
       return res.status(400).json({ error: 'either definition.numerator or pipeline is required' });
     }
-    const metric = await Metric.create({
+    const metric = await req.model('Metric').create({
       name, description, collection: effectiveCollection,
       source: normalizedSource,
       pipeline: pipeline || [],
@@ -144,7 +144,7 @@ router.post('/', async (req, res) => {
       tenantId: req.user.tenantId,
       createdBy: req.user.userId,
     });
-    AuditLog.create({ tenantId: req.user.tenantId, userId: req.user.userId, action: 'metric.create', resourceId: metric._id, resourceType: 'metric' }).catch(() => {});
+    req.model('AuditLog').create({ tenantId: req.user.tenantId, userId: req.user.userId, action: 'metric.create', resourceId: metric._id, resourceType: 'metric' }).catch(() => {});
     res.status(201).json(metric);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -380,7 +380,7 @@ router.post('/evaluate-preview', async (req, res) => {
 //      for structured-definition KPIs, halving the number of collection scans.
 router.post('/:id/evaluate', async (req, res) => {
   try {
-    const metric = await Metric.findOne({ _id: req.params.id, tenantId: req.user.tenantId });
+    const metric = await req.model('Metric').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
     if (!metric) return res.status(404).json({ error: 'Metric not found' });
 
     // ── Result cache ──────────────────────────────────────────────────────
@@ -391,7 +391,7 @@ router.post('/:id/evaluate', async (req, res) => {
     const { value, trendValue, comparison, currentPeriodValue, previousPeriodValue, executionTimeMs } =
       await runEvaluation(metric, req.user);
 
-    AuditLog.create({
+    req.model('AuditLog').create({
       tenantId: req.user.tenantId, userId: req.user.userId,
       action: 'metric.evaluate', resourceId: metric._id, resourceType: 'metric', executionTimeMs,
     }).catch(() => {});
@@ -418,7 +418,7 @@ router.post('/:id/evaluate', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    const metric = await Metric.findOne({ _id: req.params.id, tenantId: req.user.tenantId });
+    const metric = await req.model('Metric').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
     if (!metric) return res.status(404).json({ error: 'Metric not found' });
     res.json(metric);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -427,7 +427,7 @@ router.get('/:id', async (req, res) => {
 // PUT /api/metrics/:id
 router.put('/:id', async (req, res) => {
   try {
-    const metric = await Metric.findOne({ _id: req.params.id, tenantId: req.user.tenantId });
+    const metric = await req.model('Metric').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
     if (!metric) return res.status(404).json({ error: 'Metric not found' });
     const { name, description, collection, source, pipeline, definition, format, targets,
       displayFormat, prefix, suffix, goalValue, trend, verified } = req.body;
@@ -438,12 +438,12 @@ router.put('/:id', async (req, res) => {
     if (source && source.kind && source.kind !== 'collection') {
       if (!source.id) return res.status(400).json({ error: 'source.id is required' });
       if (source.kind === 'dataset') {
-        const ds = await SavedModel.findOne({ _id: source.id, tenantId: req.user.tenantId });
+        const ds = await req.model('SavedModel').findOne({ _id: source.id, tenantId: req.user.tenantId });
         if (!ds) return res.status(400).json({ error: 'Source dataset not found' });
         nextCollection = ds.sourceCollection;
         nextSource = { kind: 'dataset', id: source.id, name: ds.name };
       } else if (source.kind === 'question') {
-        const q = await Question.findOne({ _id: source.id, tenantId: req.user.tenantId });
+        const q = await req.model('Question').findOne({ _id: source.id, tenantId: req.user.tenantId });
         if (!q) return res.status(400).json({ error: 'Source report not found' });
         nextCollection = q.queryConfig?.collection || nextCollection;
         nextSource = { kind: 'question', id: source.id, name: q.name };
@@ -477,7 +477,7 @@ router.put('/:id', async (req, res) => {
 // DELETE /api/metrics/:id  (soft archive)
 router.delete('/:id', async (req, res) => {
   try {
-    const metric = await Metric.findOneAndUpdate(
+    const metric = await req.model('Metric').findOneAndUpdate(
       { _id: req.params.id, tenantId: req.user.tenantId },
       { archived: true, archivedAt: new Date() },
       { new: true }

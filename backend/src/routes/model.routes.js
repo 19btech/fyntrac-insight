@@ -13,7 +13,7 @@ function compileIfNeeded(body) {
 
 router.get('/', async (req, res) => {
   try {
-    const models = await SavedModel.find({
+    const models = await req.model('SavedModel').find({
       tenantId: req.user.tenantId,
       archived: { $ne: true },
     }).select('-versions').sort({ pinned: -1, updatedAt: -1 });
@@ -29,7 +29,7 @@ router.post('/', async (req, res) => {
     let pipeline;
     try { pipeline = compileIfNeeded(req.body); }
     catch (e) { return res.status(400).json({ error: e.message }); }
-    const model = await SavedModel.create({
+    const model = await req.model('SavedModel').create({
       name, description, sourceCollection, pipeline,
       steps: steps || [],
       columnOrder: Array.isArray(columnOrder) ? columnOrder : [],
@@ -94,7 +94,7 @@ router.post('/compile', (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    const model = await SavedModel.findOne({ _id: req.params.id, tenantId: req.user.tenantId })
+    const model = await req.model('SavedModel').findOne({ _id: req.params.id, tenantId: req.user.tenantId })
       .select('-versions'); // versions are heavy and fetched separately via /:id/versions
     if (!model) return res.status(404).json({ error: 'Model not found' });
     res.json(model);
@@ -103,7 +103,7 @@ router.get('/:id', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const model = await SavedModel.findOne({ _id: req.params.id, tenantId: req.user.tenantId });
+    const model = await req.model('SavedModel').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
     if (!model) return res.status(404).json({ error: 'Model not found' });
     const { name, description, sourceCollection, steps, columnOrder, verified, pinned } = req.body;
 
@@ -147,7 +147,7 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    const model = await SavedModel.findOneAndUpdate(
+    const model = await req.model('SavedModel').findOneAndUpdate(
       { _id: req.params.id, tenantId: req.user.tenantId },
       { archived: true, archivedAt: new Date() },
       { new: true }
@@ -159,7 +159,7 @@ router.delete('/:id', async (req, res) => {
 
 router.post('/:id/preview', async (req, res) => {
   try {
-    const model = await SavedModel.findOne({ _id: req.params.id, tenantId: req.user.tenantId });
+    const model = await req.model('SavedModel').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
     if (!model) return res.status(404).json({ error: 'Model not found' });
     const limit = Math.min(Number(req.body?.limit) || 50, 500);
     const previewPipeline = [...(model.pipeline || []), { $limit: limit }];
@@ -170,9 +170,9 @@ router.post('/:id/preview', async (req, res) => {
 
 router.get('/:id/lineage', async (req, res) => {
   try {
-    const model = await SavedModel.findOne({ _id: req.params.id, tenantId: req.user.tenantId });
+    const model = await req.model('SavedModel').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
     if (!model) return res.status(404).json({ error: 'Model not found' });
-    const questions = await Question.find({
+    const questions = await req.model('Question').find({
       tenantId: req.user.tenantId,
       archived: { $ne: true },
       $or: [
@@ -186,7 +186,7 @@ router.get('/:id/lineage', async (req, res) => {
 
 router.get('/:id/versions', async (req, res) => {
   try {
-    const model = await SavedModel.findOne({ _id: req.params.id, tenantId: req.user.tenantId })
+    const model = await req.model('SavedModel').findOne({ _id: req.params.id, tenantId: req.user.tenantId })
       .select('versions');
     if (!model) return res.status(404).json({ error: 'Model not found' });
     res.json(model.versions || []);

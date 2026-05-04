@@ -32,7 +32,7 @@ router.post('/run', async (req, res) => {
   // v60: question built on top of a saved model — prepend the model's pipeline
   if (sourceModelId) {
     try {
-      const model = await SavedModel.findOne({
+      const model = await req.model('SavedModel').findOne({
         _id: sourceModelId,
         tenantId: req.user.tenantId,
         archived: { $ne: true },
@@ -76,7 +76,7 @@ router.post('/run', async (req, res) => {
     res.set('X-Cache', 'MISS');
 
     // Audit log (fire-and-forget)
-    AuditLog.create({
+    req.model('AuditLog').create({
       tenantId: req.user.tenantId,
       userId: req.user.userId,
       action: 'query.run',

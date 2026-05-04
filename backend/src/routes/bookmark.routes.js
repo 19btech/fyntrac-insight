@@ -3,7 +3,7 @@ const Bookmark = require('../models/Bookmark.model');
 
 // GET /api/bookmarks  — current user's bookmarks
 router.get('/', async (req, res) => {
-  const items = await Bookmark.find({
+  const items = await req.model('Bookmark').find({
     tenantId: req.user.tenantId,
     userId: req.user.userId,
   }).sort({ createdAt: -1 });
@@ -15,7 +15,7 @@ router.post('/', async (req, res) => {
   const { itemType, itemId, name } = req.body;
   if (!itemType || !itemId) return res.status(400).json({ error: 'itemType and itemId are required' });
   try {
-    const bookmark = await Bookmark.findOneAndUpdate(
+    const bookmark = await req.model('Bookmark').findOneAndUpdate(
       { tenantId: req.user.tenantId, userId: req.user.userId, itemType, itemId },
       { $setOnInsert: { name } },
       { upsert: true, new: true }
@@ -28,7 +28,7 @@ router.post('/', async (req, res) => {
 
 // DELETE /api/bookmarks/:itemType/:itemId
 router.delete('/:itemType/:itemId', async (req, res) => {
-  await Bookmark.deleteOne({
+  await req.model('Bookmark').deleteOne({
     tenantId: req.user.tenantId,
     userId: req.user.userId,
     itemType: req.params.itemType,

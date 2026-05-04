@@ -3,7 +3,7 @@ const Subscription = require('../models/Subscription.model');
 
 // GET /api/subscriptions
 router.get('/', async (req, res) => {
-  const items = await Subscription.find({ tenantId: req.user.tenantId }).sort({ createdAt: -1 });
+  const items = await req.model('Subscription').find({ tenantId: req.user.tenantId }).sort({ createdAt: -1 });
   res.json(items);
 });
 
@@ -13,7 +13,7 @@ router.post('/', async (req, res) => {
   if (!dashboardId || !cron || !Array.isArray(recipients) || recipients.length === 0) {
     return res.status(400).json({ error: 'dashboardId, cron, recipients[] required' });
   }
-  const sub = await Subscription.create({
+  const sub = await req.model('Subscription').create({
     tenantId: req.user.tenantId,
     dashboardId,
     cron,
@@ -26,7 +26,7 @@ router.post('/', async (req, res) => {
 
 // PUT /api/subscriptions/:id
 router.put('/:id', async (req, res) => {
-  const sub = await Subscription.findOne({ _id: req.params.id, tenantId: req.user.tenantId });
+  const sub = await req.model('Subscription').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
   if (!sub) return res.status(404).json({ error: 'Not found' });
   ['cron', 'recipients', 'subject', 'enabled'].forEach((k) => {
     if (req.body[k] !== undefined) sub[k] = req.body[k];
@@ -37,7 +37,7 @@ router.put('/:id', async (req, res) => {
 
 // DELETE /api/subscriptions/:id
 router.delete('/:id', async (req, res) => {
-  await Subscription.deleteOne({ _id: req.params.id, tenantId: req.user.tenantId });
+  await req.model('Subscription').deleteOne({ _id: req.params.id, tenantId: req.user.tenantId });
   res.json({ deleted: true });
 });
 

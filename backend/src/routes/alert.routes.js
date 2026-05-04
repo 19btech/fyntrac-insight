@@ -3,7 +3,7 @@ const Alert = require('../models/Alert.model');
 
 // GET /api/alerts
 router.get('/', async (req, res) => {
-  const alerts = await Alert.find({ tenantId: req.user.tenantId }).sort({ createdAt: -1 });
+  const alerts = await req.model('Alert').find({ tenantId: req.user.tenantId }).sort({ createdAt: -1 });
   res.json(alerts);
 });
 
@@ -14,7 +14,7 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'questionId, name, and condition are required' });
   }
 
-  const alert = await Alert.create({
+  const alert = await req.model('Alert').create({
     questionId,
     name,
     condition,
@@ -29,7 +29,7 @@ router.post('/', async (req, res) => {
 
 // PUT /api/alerts/:id
 router.put('/:id', async (req, res) => {
-  const alert = await Alert.findOne({ _id: req.params.id, tenantId: req.user.tenantId });
+  const alert = await req.model('Alert').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
   if (!alert) return res.status(404).json({ error: 'Alert not found' });
 
   const { name, condition, frequency, recipients, enabled } = req.body;
@@ -47,7 +47,7 @@ router.put('/:id', async (req, res) => {
 
 // DELETE /api/alerts/:id
 router.delete('/:id', async (req, res) => {
-  const alert = await Alert.findOneAndDelete({ _id: req.params.id, tenantId: req.user.tenantId });
+  const alert = await req.model('Alert').findOneAndDelete({ _id: req.params.id, tenantId: req.user.tenantId });
   if (!alert) return res.status(404).json({ error: 'Alert not found' });
   res.json({ deleted: true });
 });

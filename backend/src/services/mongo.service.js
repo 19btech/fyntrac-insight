@@ -25,19 +25,19 @@ async function getTargetDb(tenant) {
 
   // Strip database name from TARGET_MONGODB_URI and substitute tenant DB
   const rawUri = process.env.TARGET_MONGODB_URI || 'mongodb://localhost:27017/fyntrac_data';
-  let baseUri;
-  try {
-    const url = new URL(rawUri);
-    url.pathname = '/';
-    const qIdx = rawUri.indexOf('?');
-    if (qIdx !== -1) url.search = rawUri.slice(qIdx);
-    baseUri = url.toString().replace(/\/$/, '');
-  } catch {
-    baseUri = rawUri.replace(/\/[^/?]+(\?|$)/, '');
-  }
-
   const dbName = `${key}`;
-  const uri = `${baseUri}/${dbName}`;
+  let uri = rawUri;
+  if (uri.includes('<TENANT>')) {
+    uri = uri.replace(/<TENANT>/g, key);
+  } else {
+    try {
+      const url = new URL(rawUri);
+      url.pathname = `/${dbName}`;
+      uri = url.toString();
+    } catch {
+      uri = rawUri.replace(/\/[^/?]+(\?|$)/, `/${dbName}$1`);
+    }
+  }
 
   console.log(`[mongo.service] Creating target DB connection for tenant '${key}' → ${dbName}`);
 

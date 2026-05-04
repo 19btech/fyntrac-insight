@@ -1,3 +1,10 @@
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import axios from 'axios';
+import { ThemeProvider, CssBaseline } from '@mui/material';
+import App from './App';
+import { buildMetabaseTheme } from './theme/metabaseTheme';
+
 // Global error handlers
 window.addEventListener('error', (event) => {
   console.error('Global error:', event.error?.message);
@@ -5,13 +12,6 @@ window.addEventListener('error', (event) => {
 window.addEventListener('unhandledrejection', (event) => {
   console.error('Unhandled rejection:', event.reason);
 });
-
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import axios from 'axios';
-import { ThemeProvider, CssBaseline } from '@mui/material';
-import App from './App';
-import { buildMetabaseTheme } from './theme/metabaseTheme';
 
 // ── Token Bootstrap ─────────────────────────────────────────────────────────
 // When fyntrac-insight is opened from fyntrac-web, the ZITADEL ID token is
@@ -21,12 +21,24 @@ import { buildMetabaseTheme } from './theme/metabaseTheme';
 (function bootstrapToken() {
   const params = new URLSearchParams(window.location.search);
   const urlToken = params.get('token');
+  const urlTenant = params.get('tenant');
+  
+  let modified = false;
   if (urlToken) {
     sessionStorage.setItem('insight_auth_token', urlToken);
     console.info('[Fyntrac Insight] Auth token received and stored.');
     params.delete('token');
-    const cleanUrl =
-      window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+    modified = true;
+  }
+  if (urlTenant) {
+    sessionStorage.setItem('insight_tenant', urlTenant);
+    console.info('[Fyntrac Insight] Tenant received and stored:', urlTenant);
+    params.delete('tenant');
+    modified = true;
+  }
+  
+  if (modified) {
+    const cleanUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
     window.history.replaceState({}, document.title, cleanUrl);
   }
 })();
@@ -35,9 +47,14 @@ import { buildMetabaseTheme } from './theme/metabaseTheme';
 // Inject the Bearer token into every request if available in sessionStorage.
 axios.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('insight_auth_token');
+  const tenant = sessionStorage.getItem('insight_tenant');
+  
+  config.headers = config.headers || {};
   if (token) {
-    config.headers = config.headers || {};
     config.headers['Authorization'] = `Bearer ${token}`;
+  }
+  if (tenant) {
+    config.headers['X-Tenant'] = tenant;
   }
   return config;
 });

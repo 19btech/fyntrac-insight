@@ -20,58 +20,60 @@
 const mongoose = require('mongoose');
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const DB_PREFIX = 'FYNTRAC_INSIGHT_';
+const DB_SUFFIX = '_INSIGHT';
 const MONGO_BASE_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fyntrac_analytics_meta';
 
-/**
- * Strip the database name from the URI so we can substitute our own.
- * e.g. mongodb://host:27017/some_db → mongodb://host:27017
- */
-function getBaseUri() {
-  try {
-    const url = new URL(MONGO_BASE_URI);
-    url.pathname = '/';
-    url.search = '';
-    // Preserve query string (auth params, replica set, etc.)
-    const raw = MONGO_BASE_URI;
-    const qIdx = raw.indexOf('?');
-    if (qIdx !== -1) url.search = raw.slice(qIdx);
-    return url.toString();
-  } catch {
-    // Fallback: strip everything after the last slash before '?'
-    return MONGO_BASE_URI.replace(/\/[^/?]+(\?|$)/, '/$1');
-  }
-}
+
 
 // ── Per-tenant connection cache ───────────────────────────────────────────────
-/** @type {Map<string, mongoose.Connection>} */
+/** @type {Map<string, Promise<mongoose.Connection>>} */
 const _connCache = new Map();
 
 /**
  * Return (or lazily create) a Mongoose connection for the given tenant.
- * The database name is `FYNTRAC_INSIGHT_<TENANT_UPPER>`.
+ * The database name is `<TENANT_UPPER>_INSIGHT`.
+ * Caches the promise (not just the resolved value) to prevent concurrent
+ * requests from creating duplicate connections.
  */
 async function getTenantConnection(tenant) {
   const key = (tenant || 'MASTER').toUpperCase();
   if (_connCache.has(key)) return _connCache.get(key);
 
-  const dbName = `${DB_PREFIX}${key}`;
-  const baseUri = getBaseUri();
-  // Remove trailing slash before appending db name
-  const uri = `${baseUri.replace(/\/$/, '')}/${dbName}`;
+  const dbName = `${key}${DB_SUFFIX}`;
+  let uri = MONGO_BASE_URI;
+  if (uri.includes('<TENANT>')) {
+    uri = uri.replace(/<TENANT>/g, key);
+  } else {
+    try {
+      const url = new URL(MONGO_BASE_URI);
+      url.pathname = `/${dbName}`;
+      uri = url.toString();
+    } catch {
+      uri = MONGO_BASE_URI.replace(/\/[^/?]+(\?|$)/, `/${dbName}$1`);
+    }
+  }
 
-  console.log(`[tenant-db] Creating Mongoose connection for tenant '${key}' → ${dbName}`);
+  console.log(`[tenant-db] Creating Mongoose connection for tenant '${key}' → ${dbName} | URI: ${uri.replace(/\/\/[^@]+@/, '//***@')}`);
 
   const conn = mongoose.createConnection(uri, {
     maxPoolSize: 10,
     serverSelectionTimeoutMS: 10000,
+    dbName: dbName,
   });
 
-  // Wait for the connection to be established before caching
-  await conn.asPromise();
+  // Cache the promise immediately so concurrent requests share it
+  const connPromise = conn.asPromise();
+  _connCache.set(key, connPromise);
 
-  _connCache.set(key, conn);
-  return conn;
+  try {
+    await connPromise;
+    console.log(`[tenant-db] Connected to metadata DB: ${dbName}`);
+    return connPromise;
+  } catch (err) {
+    // Remove failed connection from cache so a retry is possible
+    _connCache.delete(key);
+    throw err;
+  }
 }
 
 // ── Model registry ────────────────────────────────────────────────────────────
@@ -130,6 +132,14 @@ async function tenantDbMiddleware(req, res, next) {
   try {
     req.tenantConn = await getTenantConnection(tenant);
     req.tenantId = (tenant || 'master').toUpperCase();
+
+    // Propagate the resolved tenant into req.user.tenantId so that all
+    // downstream mongo.service calls (getCollections, executePipeline,
+    // getTargetDb, etc.) route to the correct tenant data database.
+    if (req.user) {
+      req.user.tenantId = req.tenantId;
+    }
+
     // Convenience helper: req.model('Dashboard') → tenant-scoped Mongoose model
     req.model = (modelName) => getModel(req, modelName);
     next();
@@ -139,4 +149,4 @@ async function tenantDbMiddleware(req, res, next) {
   }
 }
 
-module.exports = { getTenantConnection, registerSchema, getModel, tenantDbMiddleware, DB_PREFIX };
+module.exports = { getTenantConnection, registerSchema, getModel, tenantDbMiddleware, DB_SUFFIX };

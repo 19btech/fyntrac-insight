@@ -7,7 +7,7 @@ const AuditLog = require('../models/AuditLog.model');
  * Build schema context for AI prompts: list of { name, fields[] }
  */
 async function buildSchemaContext(user) {
-  const collectionNames = await schemaService.listCollections();
+  const collectionNames = await schemaService.listCollections(user);
   const contexts = await Promise.all(
     collectionNames.map(async (name) => {
       const fields = await schemaService.getCollectionFields(name, user);
@@ -106,7 +106,7 @@ router.post('/plan', async (req, res) => {
   try {
     const schemaContext = await buildSchemaContext(req.user);
     const plan = await aiService.generatePlan({ prompt, intent, currentContext }, schemaContext, req.user);
-    AuditLog.create({
+    req.model('AuditLog').create({
       tenantId: req.user.tenantId,
       userId: req.user.userId,
       action: 'ai.plan',
@@ -126,7 +126,7 @@ router.post('/explain', async (req, res) => {
   try {
     const schemaContext = await buildSchemaContext(req.user);
     const out = await aiService.explainResult({ data, chartConfig, kpiContext, prompt }, schemaContext, req.user);
-    AuditLog.create({
+    req.model('AuditLog').create({
       tenantId: req.user.tenantId,
       userId: req.user.userId,
       action: 'ai.explain',

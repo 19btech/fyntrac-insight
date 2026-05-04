@@ -3,7 +3,7 @@ const Collection = require('../models/Collection.model');
 
 // GET /api/collections
 router.get('/', async (req, res) => {
-  const collections = await Collection.find({ tenantId: req.user.tenantId }).sort({ name: 1 });
+  const collections = await req.model('Collection').find({ tenantId: req.user.tenantId }).sort({ name: 1 });
   res.json(collections);
 });
 
@@ -12,7 +12,7 @@ router.post('/', async (req, res) => {
   const { name, description, parentId, color, icon } = req.body;
   if (!name) return res.status(400).json({ error: 'name is required' });
 
-  const collection = await Collection.create({
+  const collection = await req.model('Collection').create({
     name,
     description,
     parentId: parentId || null,
@@ -27,7 +27,7 @@ router.post('/', async (req, res) => {
 
 // GET /api/collections/:id
 router.get('/:id', async (req, res) => {
-  const collection = await Collection.findOne({
+  const collection = await req.model('Collection').findOne({
     _id: req.params.id,
     tenantId: req.user.tenantId,
   });
@@ -37,7 +37,7 @@ router.get('/:id', async (req, res) => {
 
 // PUT /api/collections/:id
 router.put('/:id', async (req, res) => {
-  const collection = await Collection.findOne({
+  const collection = await req.model('Collection').findOne({
     _id: req.params.id,
     tenantId: req.user.tenantId,
   });
@@ -58,7 +58,7 @@ router.put('/:id', async (req, res) => {
 
 // DELETE /api/collections/:id
 router.delete('/:id', async (req, res) => {
-  const collection = await Collection.findOneAndDelete({
+  const collection = await req.model('Collection').findOneAndDelete({
     _id: req.params.id,
     tenantId: req.user.tenantId,
   });

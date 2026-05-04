@@ -28,7 +28,7 @@ function sanitize(doc) {
 
 /** GET /api/ai-settings — current user's AI config (no raw keys). */
 router.get('/', async (req, res) => {
-  const doc = await AISettings.findOne({ tenantId: req.user.tenantId, userId: req.user.userId });
+  const doc = await req.model('AISettings').findOne({ tenantId: req.user.tenantId, userId: req.user.userId });
   res.json(sanitize(doc));
 });
 
@@ -44,7 +44,7 @@ router.put('/key', async (req, res) => {
   }
 
   const filter = { tenantId: req.user.tenantId, userId: req.user.userId };
-  const doc = await AISettings.findOneAndUpdate(filter, filter, { upsert: true, new: true });
+  const doc = await req.model('AISettings').findOneAndUpdate(filter, filter, { upsert: true, new: true });
 
   if (!apiKey) {
     doc.providers[provider].encryptedKey = '';
@@ -70,7 +70,7 @@ router.post('/test', async (req, res) => {
     return res.status(400).json({ error: 'Invalid provider' });
   }
   if (!apiKey) {
-    const doc = await AISettings.findOne({ tenantId: req.user.tenantId, userId: req.user.userId });
+    const doc = await req.model('AISettings').findOne({ tenantId: req.user.tenantId, userId: req.user.userId });
     const enc = doc?.providers?.[provider]?.encryptedKey;
     if (enc) {
       try { apiKey = credService.decrypt(enc); } catch { /* noop */ }
@@ -80,7 +80,7 @@ router.post('/test', async (req, res) => {
 
   const result = await providers.testApiKey(provider, apiKey);
   if (result.ok) {
-    await AISettings.updateOne(
+    await req.model('AISettings').updateOne(
       { tenantId: req.user.tenantId, userId: req.user.userId },
       { $set: { [`providers.${provider}.verifiedAt`]: new Date() } },
       { upsert: true }
@@ -101,7 +101,7 @@ router.get('/models', async (req, res) => {
     return res.status(400).json({ error: 'Invalid provider' });
   }
   if (!apiKey) {
-    const doc = await AISettings.findOne({ tenantId: req.user.tenantId, userId: req.user.userId });
+    const doc = await req.model('AISettings').findOne({ tenantId: req.user.tenantId, userId: req.user.userId });
     const enc = doc?.providers?.[provider]?.encryptedKey;
     if (enc) {
       try { apiKey = credService.decrypt(enc); } catch { /* noop */ }
@@ -132,7 +132,7 @@ router.put('/active', async (req, res) => {
     update.activeModel = activeModel;
     update[`providers.${activeProvider}.model`] = activeModel;
   }
-  const doc = await AISettings.findOneAndUpdate(filter, { $set: update }, { upsert: true, new: true });
+  const doc = await req.model('AISettings').findOneAndUpdate(filter, { $set: update }, { upsert: true, new: true });
   res.json(sanitize(doc));
 });
 
@@ -143,7 +143,7 @@ router.put('/active', async (req, res) => {
 router.put('/conservative', async (req, res) => {
   const { conservativeMode } = req.body || {};
   const filter = { tenantId: req.user.tenantId, userId: req.user.userId };
-  const doc = await AISettings.findOneAndUpdate(
+  const doc = await req.model('AISettings').findOneAndUpdate(
     filter,
     { $set: { conservativeMode: !!conservativeMode } },
     { upsert: true, new: true }

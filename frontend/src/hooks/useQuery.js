@@ -10,10 +10,12 @@ const BASE_URL = process.env.REACT_APP_API_BASE_URL || '/api';
 
 const api = axios.create({ baseURL: BASE_URL });
 
-// Attach JWT from sessionStorage to every request (set by index.js bootstrap)
+// Attach JWT and Tenant from sessionStorage to every request (set by index.js bootstrap)
 api.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('insight_auth_token');
+  const tenant = sessionStorage.getItem('insight_tenant');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (tenant) config.headers['X-Tenant'] = tenant;
   return config;
 });
 

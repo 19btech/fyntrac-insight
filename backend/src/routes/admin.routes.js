@@ -5,11 +5,7 @@ const AuditLog = require('../models/AuditLog.model');
 // Query params: action, resourceType, userId, from, to, limit (default 100), skip (default 0)
 router.get('/audit', async (req, res) => {
   try {
-    // Only admin and editor roles can access audit logs
-    if (req.user.role !== 'admin' && req.user.role !== 'editor') {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
+    // Allow all authenticated users to access audit logs
     const { action, resourceType, userId, from, to, limit = 100, skip = 0 } = req.query;
 
     const filter = { tenantId: req.user.tenantId };
@@ -40,10 +36,7 @@ router.get('/audit', async (req, res) => {
 // Returns aggregated stats: top actions, active users, avg execution time — last 30 days
 router.get('/audit/summary', async (req, res) => {
   try {
-    if (req.user.role !== 'admin' && req.user.role !== 'editor') {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
+    // Allow all authenticated users to access audit summary
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const base = { tenantId: req.user.tenantId, createdAt: { $gte: since } };
 

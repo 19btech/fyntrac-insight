@@ -15,18 +15,20 @@ import FolderIcon from '@mui/icons-material/Folder';
 import ScienceIcon from '@mui/icons-material/Science';
 import SpeedIcon from '@mui/icons-material/Speed';
 import BalanceIcon from '@mui/icons-material/Balance';
+import SettingsIcon from '@mui/icons-material/Settings';
 import usePageTitleStore from '../store/pageTitleStore';
 import api from '../hooks/useQuery';
+import { Divider } from '@mui/material';
 
 const OBJECT_ID_RX = /^[a-f0-9]{24}$/i;
 
 const SEARCH_TYPES = {
-  dashboard:  { label: 'Dashboard',    icon: <DashboardIcon fontSize="small" /> },
-  question:   { label: 'Report',       icon: <QuestionAnswerIcon fontSize="small" /> },
-  collection: { label: 'Collection',   icon: <FolderIcon fontSize="small" /> },
-  model:      { label: 'Dataset',      icon: <ScienceIcon fontSize="small" /> },
-  metric:     { label: 'KPI',          icon: <SpeedIcon fontSize="small" /> },
-  recon:      { label: 'Reconciliation', icon: <BalanceIcon fontSize="small" /> },
+  dashboard: { label: 'Dashboard', icon: <DashboardIcon fontSize="small" /> },
+  question: { label: 'Report', icon: <QuestionAnswerIcon fontSize="small" /> },
+  collection: { label: 'Collection', icon: <FolderIcon fontSize="small" /> },
+  model: { label: 'Dataset', icon: <ScienceIcon fontSize="small" /> },
+  metric: { label: 'KPI', icon: <SpeedIcon fontSize="small" /> },
+  recon: { label: 'Reconciliation', icon: <BalanceIcon fontSize="small" /> },
 };
 
 function useBreadcrumbs(pageTitle) {
@@ -186,8 +188,10 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
             <MenuIcon />
           </IconButton>
           <Box sx={{ minWidth: 0, overflow: 'hidden' }}>
-            <Breadcrumbs separator="/" sx={{ fontSize: '0.8125rem', color: 'text.secondary',
-              '& .MuiBreadcrumbs-separator': { mx: 0.75 } }}>
+            <Breadcrumbs separator="/" sx={{
+              fontSize: '0.8125rem', color: 'text.secondary',
+              '& .MuiBreadcrumbs-separator': { mx: 0.75 }
+            }}>
               {crumbs.map((c, i) =>
                 i === crumbs.length - 1 ? (
                   <Typography key={c.path} sx={{ fontSize: '0.8125rem', color: 'text.primary', fontWeight: 700, whiteSpace: 'nowrap' }}>
@@ -207,82 +211,129 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
         {/* CENTRE zone: search bar — grows but won't overflow left/right zones */}
         <Box sx={{ flex: '2 1 0', minWidth: 0, maxWidth: 520, px: 1 }}>
           <Autocomplete
-          freeSolo openOnFocus
-          options={suggestions}
-          getOptionLabel={(opt) => (typeof opt === 'string' ? opt : opt?.name || '')}
-          filterOptions={(x) => x}
-          inputValue={searchInput}
-          onInputChange={(_, v, reason) => { if (reason !== 'reset') setSearchInput(v); }}
-          onChange={(_, val) => {
-            if (val && typeof val !== 'string') goToItem(val);
-            else if (typeof val === 'string') submitFreeText();
-          }}
-          noOptionsText={searchInput.trim() ? `No matches for "${searchInput}"` : 'Start typing to search...'}
-          sx={{ width: '100%' }}
-          renderOption={(props, option) => {
-            const meta = SEARCH_TYPES[option._type] || SEARCH_TYPES.question;
-            return (
-              <Box component="li" {...props} key={`${option._type}-${option._id}`} sx={{ gap: 1.25, py: 0.75 }}>
-                <Box sx={{ color: 'primary.main', display: 'flex' }}>{meta.icon}</Box>
-                <Stack sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{ fontSize: '0.8125rem', fontWeight: 500, color: 'text.primary',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {option.name}
-                  </Typography>
-                  {option.description && (
-                    <Typography sx={{ fontSize: '0.7rem', color: 'text.secondary',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {option.description}
+            freeSolo openOnFocus
+            options={suggestions}
+            getOptionLabel={(opt) => (typeof opt === 'string' ? opt : opt?.name || '')}
+            filterOptions={(x) => x}
+            inputValue={searchInput}
+            onInputChange={(_, v, reason) => { if (reason !== 'reset') setSearchInput(v); }}
+            onChange={(_, val) => {
+              if (val && typeof val !== 'string') goToItem(val);
+              else if (typeof val === 'string') submitFreeText();
+            }}
+            noOptionsText={searchInput.trim() ? `No matches for "${searchInput}"` : 'Start typing to search...'}
+            sx={{ width: '100%' }}
+            renderOption={(props, option) => {
+              const meta = SEARCH_TYPES[option._type] || SEARCH_TYPES.question;
+              return (
+                <Box component="li" {...props} key={`${option._type}-${option._id}`} sx={{ gap: 1.25, py: 0.75 }}>
+                  <Box sx={{ color: 'primary.main', display: 'flex' }}>{meta.icon}</Box>
+                  <Stack sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography sx={{
+                      fontSize: '0.8125rem', fontWeight: 500, color: 'text.primary',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                    }}>
+                      {option.name}
                     </Typography>
-                  )}
-                </Stack>
-                <Chip label={meta.label} size="small"
-                  sx={{ fontSize: '0.65rem', height: 20, bgcolor: '#eef2ff', color: '#4f46e5' }} />
-              </Box>
-            );
-          }}
-          renderInput={(params) => (
-            <TextField {...params} size="small"
-              placeholder={`Search dashboards, reports, datasets...   ${metaKey}K`}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && suggestions.length === 0) {
-                  e.preventDefault();
-                  submitFreeText();
-                }
-              }}
-              slotProps={{
-                input: {
-                  ...params.InputProps,
-                  startAdornment: (
-                    <InputAdornment position="start" sx={{ ml: 0.5 }}>
-                      <SearchIcon fontSize="small" sx={{ color: 'text.disabled' }} />
-                    </InputAdornment>
-                  ),
-                },
-              }}
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  borderRadius: 999, bgcolor: '#f8fafc', fontSize: '0.8125rem', pl: 1,
-                  transition: 'background-color .15s, box-shadow .15s',
-                  '& fieldset': { borderColor: '#e2e8f0' },
-                  '&:hover fieldset': { borderColor: '#cbd5e1' },
-                  '&.Mui-focused': { bgcolor: '#fff', boxShadow: '0 0 0 3px rgba(79, 70, 229, 0.12)' },
-                  '&.Mui-focused fieldset': { borderColor: 'primary.main', borderWidth: 1 },
-                },
-              }}
-            />
-          )}
-          slotProps={{
-            paper: { sx: { borderRadius: 2, mt: 0.5, boxShadow: '0 12px 28px rgba(15, 23, 42, 0.12)' } },
-            listbox: { sx: { py: 0.5 } },
-          }}
-        />
+                    {option.description && (
+                      <Typography sx={{
+                        fontSize: '0.7rem', color: 'text.secondary',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                      }}>
+                        {option.description}
+                      </Typography>
+                    )}
+                  </Stack>
+                  <Chip label={meta.label} size="small"
+                    sx={{ fontSize: '0.65rem', height: 20, bgcolor: '#eef2ff', color: '#4f46e5' }} />
+                </Box>
+              );
+            }}
+            renderInput={(params) => (
+              <TextField {...params} size="small"
+                placeholder={`Search dashboards, reports, datasets...   ${metaKey}K`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && suggestions.length === 0) {
+                    e.preventDefault();
+                    submitFreeText();
+                  }
+                }}
+                slotProps={{
+                  input: {
+                    ...params.InputProps,
+                    startAdornment: (
+                      <InputAdornment position="start" sx={{ ml: 0.5 }}>
+                        <SearchIcon fontSize="small" sx={{ color: 'text.disabled' }} />
+                      </InputAdornment>
+                    ),
+                  },
+                }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: 999, bgcolor: '#f8fafc', fontSize: '0.8125rem', pl: 1,
+                    transition: 'background-color .15s, box-shadow .15s',
+                    '& fieldset': { borderColor: '#e2e8f0' },
+                    '&:hover fieldset': { borderColor: '#cbd5e1' },
+                    '&.Mui-focused': { bgcolor: '#fff', boxShadow: '0 0 0 3px rgba(79, 70, 229, 0.12)' },
+                    '&.Mui-focused fieldset': { borderColor: 'primary.main', borderWidth: 1 },
+                  },
+                }}
+              />
+            )}
+            slotProps={{
+              paper: { sx: { borderRadius: 2, mt: 0.5, boxShadow: '0 12px 28px rgba(15, 23, 42, 0.12)' } },
+              listbox: { sx: { py: 0.5 } },
+            }}
+          />
         </Box>
 
         {/* RIGHT zone: user profile pill — fixed size, never shrinks or clips */}
         <Stack direction="row" alignItems="center" spacing={1}
           sx={{ flex: '1 1 0', justifyContent: 'flex-end', flexShrink: 0, minWidth: 0 }}>
-          {firstName && (
+          
+          {onAIClick && (
+            <Tooltip title="AI Assistant">
+              <IconButton onClick={onAIClick} size="small" sx={{ color: 'primary.main' }}>
+                <AutoAwesomeIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+
+          <Tooltip title="Settings">
+            <IconButton
+              size="small"
+              onClick={(e) => setAnchorEl(e.currentTarget)}
+              sx={{ color: 'text.secondary' }}
+            >
+              <SettingsIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+
+          <Menu
+            anchorEl={anchorEl}
+            open={Boolean(anchorEl)}
+            onClose={() => setAnchorEl(null)}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            PaperProps={{
+              sx: {
+                borderRadius: 1.5,
+                mt: 1,
+                boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+                minWidth: 160,
+              }
+            }}
+          >
+            <MenuItem onClick={() => { navigate('/settings'); setAnchorEl(null); }}>
+              Settings
+            </MenuItem>
+            <Divider />
+            <MenuItem onClick={() => setAnchorEl(null)}>
+              Logout
+            </MenuItem>
+          </Menu>
+
+          {(firstName || tenant) && (
             <Box sx={{
               display: 'flex',
               alignItems: 'center',
@@ -296,13 +347,13 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
               overflow: 'hidden',
             }}>
               <Avatar sx={{ bgcolor: '#2563EB', width: 28, height: 28, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
-                {firstName[0].toUpperCase()}
+                {(firstName || tenant || '?')[0].toUpperCase()}
               </Avatar>
               <Typography variant="subtitle2" sx={{
                 color: 'text.primary', lineHeight: 1, fontWeight: 500,
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               }}>
-                {firstName}{tenant && tenant !== 'master' ? ` / ${tenant}` : ''}
+                {firstName || tenant}{firstName && tenant && tenant !== 'master' ? ` / ${tenant}` : ''}
               </Typography>
             </Box>
           )}

@@ -22,6 +22,7 @@ window.addEventListener('unhandledrejection', (event) => {
   const params = new URLSearchParams(window.location.search);
   const urlToken = params.get('token');
   const urlTenant = params.get('tenant');
+  const urlFirstName = params.get('firstName');
   
   let modified = false;
   if (urlToken) {
@@ -34,6 +35,12 @@ window.addEventListener('unhandledrejection', (event) => {
     sessionStorage.setItem('insight_tenant', urlTenant);
     console.info('[Fyntrac Insight] Tenant received and stored:', urlTenant);
     params.delete('tenant');
+    modified = true;
+  }
+  if (urlFirstName) {
+    sessionStorage.setItem('insight_firstName', urlFirstName);
+    console.info('[Fyntrac Insight] First name received and stored.');
+    params.delete('firstName');
     modified = true;
   }
   

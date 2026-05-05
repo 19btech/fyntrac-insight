@@ -97,16 +97,24 @@ function isStaticKeyConfigured() {
  * ZITADEL puts the tenant in `urn:zitadel:iam:org:id` or a custom claim.
  * We fall back to the `tenantId` claim for compatibility with the legacy static-key path.
  */
-function buildUser(decoded) {
+function buildUser(decoded, req) {
   // ZITADEL custom org claim (set as project claim in ZITADEL console)
   const orgClaim = decoded['urn:zitadel:iam:org:id'] || decoded['tenantId'] || 'master';
+
+  // Extract role: prioritize gateway header (X-User-Role), then JWT claim, then default
+  let role = 'viewer';
+  if (req && req.headers['x-user-role']) {
+    role = req.headers['x-user-role'];
+  } else if (decoded.role) {
+    role = decoded.role;
+  }
 
   return {
     sub: decoded.sub,
     userId: decoded.sub,
     tenantId: orgClaim,
     email: decoded.email || decoded['preferred_username'] || '',
-    role: decoded.role || 'viewer',
+    role: role,
     attributes: decoded.attributes || {},
     raw: decoded,
   };
@@ -166,7 +174,7 @@ async function authMiddleware(req, res, next) {
       }
 
       const decoded = jwt.verify(token, pem, verifyOptions);
-      req.user = buildUser(decoded);
+      req.user = buildUser(decoded, req);
       return next();
     }
 
@@ -178,7 +186,7 @@ async function authMiddleware(req, res, next) {
       return res.status(401).json({ error: 'JWT missing tenantId claim' });
     }
 
-    req.user = buildUser(decoded);
+    req.user = buildUser(decoded, req);
     return next();
 
   } catch (err) {

@@ -206,20 +206,24 @@ export default function ModelsPage() {
         </Tooltip>
       </Box>
 
-      {loading ? (
+      {loading && (
         <Grid container spacing={2}>
           {[1, 2, 3, 4].map((i) => (<Grid key={i} size={{ xs: 12, sm: 6, md: 4 }}><Skeleton variant="rounded" height={140} /></Grid>))}
         </Grid>
-      ) : models.length === 0 ? (
-        <Card>
-          <CardContent sx={{ textAlign: 'center', py: 6 }}>
-            <Typography color="text.secondary" gutterBottom>No datasets yet.</Typography>
-            <Button startIcon={<AddIcon />} variant="outlined" onClick={() => setStarterOpen(true)}>
-              Create your first dataset
-            </Button>
-          </CardContent>
+      )}
+      {!loading && models.length === 0 && (
+        <Card variant="outlined" sx={{ p: 4, textAlign: 'center', mt: 4 }}>
+          <TableChartIcon sx={{ fontSize: 56, color: 'text.disabled' }} />
+          <Typography variant="h4" sx={{ mt: 1 }}>No datasets yet</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Create a reusable, curated data source your team can build reports on top of.
+          </Typography>
+          <Button variant="contained" onClick={() => { setPreviewId(null); setPreviewStarter(null); setPreviewNew(true); }}>
+            Create your first dataset
+          </Button>
         </Card>
-      ) : (
+      )}
+      {!loading && models.length > 0 && (
         <Grid container spacing={2}>
           {models.map((m) => (
             <Grid size={{ xs: 12, sm: 6, md: 4 }} key={m._id}>

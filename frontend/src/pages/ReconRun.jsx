@@ -57,8 +57,9 @@ export default function ReconRunPage() {
 
   const exportCsv = () => {
     const url = `${api.defaults.baseURL}/recons/runs/${runId}/export?status=${tab}`;
-    const token = sessionStorage.getItem('fyntrac_jwt');
-    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    const token = sessionStorage.getItem('insight_auth_token');
+    const tenant = sessionStorage.getItem('insight_tenant');
+    fetch(url, { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(tenant ? { 'X-Tenant': tenant } : {}) } })
       .then((r) => r.blob())
       .then((b) => {
         const a = document.createElement('a');

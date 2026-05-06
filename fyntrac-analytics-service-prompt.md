@@ -512,8 +512,8 @@ Analytics served at `analytics.fyntrac.com` or `/analytics` proxied route. JWT p
 ```env
 # Backend
 PORT=4000
-MONGODB_URI=mongodb://localhost:27017/fyntrac_analytics_meta
-TARGET_MONGODB_URI=mongodb://localhost:27017/fyntrac_data
+MONGODB_URI=mongodb://localhost:27017/<TENANT>_INSIGHT
+TARGET_MONGODB_URI=mongodb://localhost:27017/<TENANT>
 JWT_PUBLIC_KEY=<RS256 public key from Fyntrac main app>
 ANTHROPIC_API_KEY=sk-ant-...
 CACHE_TTL_SECONDS=300

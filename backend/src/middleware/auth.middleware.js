@@ -98,8 +98,17 @@ function isStaticKeyConfigured() {
  * We fall back to the `tenantId` claim for compatibility with the legacy static-key path.
  */
 function buildUser(decoded, req) {
-  // ZITADEL custom org claim (set as project claim in ZITADEL console)
-  const orgClaim = decoded['urn:zitadel:iam:org:id'] || decoded['tenantId'] || 'master';
+  // PRIORITY for tenantId:
+  // 1. X-Tenant header (from gateway, most up-to-date)
+  // 2. ZITADEL custom org claim (from JWT)
+  // 3. tenantId claim (from JWT)
+  // 4. Default to 'master' (dev fallback)
+  let tenantId = 'master';
+  if (req && req.headers['x-tenant']) {
+    tenantId = req.headers['x-tenant'];
+  } else {
+    tenantId = decoded['urn:zitadel:iam:org:id'] || decoded['tenantId'] || 'master';
+  }
 
   // Extract role: prioritize gateway header (X-User-Role), then JWT claim, then default
   let role = 'viewer';
@@ -112,7 +121,7 @@ function buildUser(decoded, req) {
   return {
     sub: decoded.sub,
     userId: decoded.sub,
-    tenantId: orgClaim,
+    tenantId: tenantId,
     email: decoded.email || decoded['preferred_username'] || '',
     role: role,
     attributes: decoded.attributes || {},

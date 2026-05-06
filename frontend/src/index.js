@@ -14,10 +14,11 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 // ── Token Bootstrap ─────────────────────────────────────────────────────────
-// When fyntrac-insight is opened from fyntrac-web, the ZITADEL ID token is
-// passed as a ?token=<jwt> URL parameter. Read it once, store it in
-// sessionStorage (survives page refreshes within this tab), then strip it
-// from the URL so it doesn't leak in browser history.
+// Strategy to obtain OIDC ID token for SSO:
+// 1. Check URL parameter ?token=<jwt> (from gateway redirect)
+// 2. Check sessionStorage (persists across page refreshes)
+// 3. Fetch from gateway's /auth/token endpoint if session is active
+// 4. If all fail, user is not authenticated — app will handle unauthorized responses
 (function bootstrapToken() {
   const params = new URLSearchParams(window.location.search);
   const urlToken = params.get('token');
@@ -27,19 +28,19 @@ window.addEventListener('unhandledrejection', (event) => {
   let modified = false;
   if (urlToken) {
     sessionStorage.setItem('insight_auth_token', urlToken);
-    console.info('[Fyntrac Insight] Auth token received and stored.');
+    console.info('[Fyntrac Insight] Auth token received from URL and stored.');
     params.delete('token');
     modified = true;
   }
   if (urlTenant) {
     sessionStorage.setItem('insight_tenant', urlTenant);
-    console.info('[Fyntrac Insight] Tenant received and stored:', urlTenant);
+    console.info('[Fyntrac Insight] Tenant received from URL and stored:', urlTenant);
     params.delete('tenant');
     modified = true;
   }
   if (urlFirstName) {
     sessionStorage.setItem('insight_firstName', urlFirstName);
-    console.info('[Fyntrac Insight] First name received and stored.');
+    console.info('[Fyntrac Insight] First name received from URL and stored.');
     params.delete('firstName');
     modified = true;
   }
@@ -47,6 +48,30 @@ window.addEventListener('unhandledrejection', (event) => {
   if (modified) {
     const cleanUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
     window.history.replaceState({}, document.title, cleanUrl);
+  }
+
+  // If token not in URL or sessionStorage, try to fetch from gateway session
+  const existingToken = sessionStorage.getItem('insight_auth_token');
+  if (!existingToken && !urlToken) {
+    console.info('[Fyntrac Insight] No token in URL or sessionStorage. Attempting to fetch from gateway...');
+    fetch('/auth/token', {
+      method: 'GET',
+      credentials: 'include', // Include cookies to authenticate with gateway
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
+      .then(data => {
+        if (data.token) {
+          sessionStorage.setItem('insight_auth_token', data.token);
+          console.info('[Fyntrac Insight] Auth token fetched from gateway and stored.');
+        }
+        if (data.tenant && !sessionStorage.getItem('insight_tenant')) {
+          sessionStorage.setItem('insight_tenant', data.tenant);
+          console.info('[Fyntrac Insight] Tenant fetched from gateway and stored.');
+        }
+      })
+      .catch(err => {
+        console.warn('[Fyntrac Insight] Could not fetch token from gateway:', err);
+      });
   }
 })();
 

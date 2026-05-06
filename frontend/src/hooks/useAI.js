@@ -9,12 +9,14 @@ const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:4000/ap
  * @param {function} onChunk - Called with each text chunk
  */
 export async function streamSSE(path, body, onChunk) {
-  const token = sessionStorage.getItem('fyntrac_jwt');
+  const token = sessionStorage.getItem('insight_auth_token');
+  const tenant = sessionStorage.getItem('insight_tenant');
   const response = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(tenant ? { 'X-Tenant': tenant } : {}),
     },
     body: JSON.stringify(body),
   });

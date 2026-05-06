@@ -21,7 +21,7 @@ const mongoose = require('mongoose');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const DB_SUFFIX = '_INSIGHT';
-const MONGO_BASE_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fyntrac_analytics_meta';
+const MONGO_BASE_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/<TENANT>_INSIGHT';
 
 
 
@@ -138,6 +138,9 @@ async function tenantDbMiddleware(req, res, next) {
     // getTargetDb, etc.) route to the correct tenant data database.
     if (req.user) {
       req.user.tenantId = req.tenantId;
+      // Attach getModel helper to user object so services (like AI service)
+      // can access tenant-scoped Mongoose models
+      req.user.getModel = (modelName) => getModel(req, modelName);
     }
 
     // Convenience helper: req.model('Dashboard') → tenant-scoped Mongoose model

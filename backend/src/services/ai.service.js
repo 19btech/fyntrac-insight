@@ -1,6 +1,3 @@
-const AISettings = require('../models/AISettings.model');
-const SavedModel = require('../models/SavedModel.model');
-const Metric = require('../models/Metric.model');
 const credService = require('./ai-credentials.service');
 const providers = require('./ai-providers.service');
 
@@ -8,6 +5,7 @@ const providers = require('./ai-providers.service');
  * Resolve effective AI credentials for a user.
  */
 async function resolveCreds(user) {
+  const AISettings = user.getModel('AISettings');
   const settings = await AISettings.findOne({ tenantId: user.tenantId, userId: user.userId });
   const provider = settings?.activeProvider || 'anthropic';
   const cfg = settings?.providers?.[provider] || {};
@@ -37,6 +35,8 @@ async function resolveCreds(user) {
  */
 async function buildGroundedContext(user) {
   const tenantId = user.tenantId;
+  const SavedModel = user.getModel('SavedModel');
+  const Metric = user.getModel('Metric');
   const [datasets, kpis] = await Promise.all([
     SavedModel.find({ tenantId, archived: { $ne: true } }).select('name description collection verified').limit(50).lean(),
     Metric.find({ tenantId, archived: { $ne: true } }).select('name description collection definition format').limit(50).lean(),

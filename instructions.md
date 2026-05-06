@@ -315,8 +315,8 @@ docker exec -it fyntrac-mongo mongosh --eval "db.adminCommand('ping')"
 # backend
 cd backend
 cp .env.example .env
-# edit .env: keep MONGODB_URI=mongodb://localhost:27017/fyntrac_analytics_meta
-#           keep TARGET_MONGODB_URI=mongodb://localhost:27017/fyntrac_data
+# edit .env: keep MONGODB_URI=mongodb://localhost:27017/<TENANT>_INSIGHT
+#           keep TARGET_MONGODB_URI=mongodb://localhost:27017/<TENANT>
 #           leave JWT_PUBLIC_KEY blank for the dev fallback
 cd ..
 
@@ -456,5 +456,5 @@ tail -f logs/frontend.log
 cd frontend && NODE_OPTIONS="--max-old-space-size=6144" npm run build
 
 # List metadata collections
-docker exec -it fyntrac-mongo mongosh fyntrac_analytics_meta --eval "db.getCollectionNames()"
+docker exec -it fyntrac-mongo mongosh MASTER_INSIGHT --eval "db.getCollectionNames()"
 ```

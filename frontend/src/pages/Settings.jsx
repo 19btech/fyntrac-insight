@@ -241,7 +241,7 @@ function AISettingsPanel() {
 }
 
 function AccountPanel() {
-  const token = sessionStorage.getItem('fyntrac_jwt') || '';
+  const token = sessionStorage.getItem('insight_auth_token') || '';
   let claims = null;
   try {
     if (token) claims = JSON.parse(atob(token.split('.')[1]));

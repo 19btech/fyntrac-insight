@@ -12,14 +12,32 @@ import BoltIcon from '@mui/icons-material/Bolt';
 import TodayIcon from '@mui/icons-material/Today';
 import api from '../hooks/useQuery';
 
+// Design-token palette — synced with metabaseTheme.js / theme.ts
+const INDIGO      = '#6366f1'; // tokens.brand.indigo
+const INDIGO_DARK = '#4f46e5'; // tokens.brand.indigoDark
+const INDIGO_BG   = '#eef2ff'; // tokens.brand.indigoBg
+const GREEN       = '#10b981'; // tokens.brand.green
+const GREEN_BG    = '#d1fae5'; // tokens.brand.greenBg
+const AMBER       = '#f59e0b'; // tokens.brand.amber
+const AMBER_BG    = '#fef3c7'; // tokens.brand.amberBg
+const RED         = '#ef4444'; // tokens.brand.red
+const RED_BG      = '#fee2e2'; // tokens.brand.redBg
+const PURPLE      = '#a855f7'; // tokens.brand.purple
+const PURPLE_BG   = '#f3e8ff'; // tokens.brand.purpleBg
+const SLATE_50    = '#f8fafc'; // tokens.brand.slate50
+const SLATE_200   = '#e2e8f0'; // tokens.brand.slate200
+const SLATE_500   = '#64748b'; // tokens.brand.slate500
+const SLATE_700   = '#334155'; // tokens.brand.slate700
+const SLATE_900   = '#0f172a'; // tokens.brand.slate900
+
 const ACTION_CONFIG = {
-  'query.run':      { bgcolor: '#eff6ff', color: '#1e40af', border: '#bfdbfe' },
-  'dashboard.view': { bgcolor: '#f0fdf4', color: '#15803d', border: '#bbf7d0' },
-  'question.view':  { bgcolor: '#fffbeb', color: '#b45309', border: '#fde68a' },
-  'metric.evaluate':{ bgcolor: '#fef2f2', color: '#dc2626', border: '#fecaca' },
-  'question.save':  { bgcolor: '#faf5ff', color: '#7c3aed', border: '#ddd6fe' },
-  'metric.create':  { bgcolor: '#f0fdf4', color: '#15803d', border: '#bbf7d0' },
-  default:          { bgcolor: '#f8fafc', color: '#475569', border: '#e2e8f0' },
+  'query.run':      { bgcolor: INDIGO_BG,  color: INDIGO_DARK, border: '#bfdbfe'  },
+  'dashboard.view': { bgcolor: GREEN_BG,   color: '#15803d',   border: '#bbf7d0'  },
+  'question.view':  { bgcolor: AMBER_BG,   color: '#b45309',   border: '#fde68a'  },
+  'metric.evaluate':{ bgcolor: RED_BG,     color: RED,         border: '#fecaca'  },
+  'question.save':  { bgcolor: PURPLE_BG,  color: '#7c3aed',   border: '#ddd6fe'  },
+  'metric.create':  { bgcolor: GREEN_BG,   color: '#15803d',   border: '#bbf7d0'  },
+  default:          { bgcolor: SLATE_50,   color: SLATE_500,   border: SLATE_200  },
 };
 
 // Map raw action/resource identifiers to user-facing display labels.
@@ -39,7 +57,7 @@ const RESOURCE_DISPLAY_LABEL = {
   collection: 'Collection',
 };
 
-const STAT_ACCENTS = ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b'];
+const STAT_ACCENTS = [INDIGO, GREEN, PURPLE, AMBER];
 const STAT_ICONS   = [BoltIcon, PeopleIcon, QueryStatsIcon, TodayIcon];
 
 function StatCard({ label, value, accent, IconComp, delay }) {
@@ -70,7 +88,7 @@ function StatCard({ label, value, accent, IconComp, delay }) {
             </Box>
             <Box>
               <Typography variant="body2" color="text.secondary" fontWeight={500}>{label}</Typography>
-              <Typography variant="h5" fontWeight={700} sx={{ color: '#0f172a', lineHeight: 1.2, mt: 0.25 }}>
+              <Typography variant="h5" fontWeight={700} sx={{ color: SLATE_900, lineHeight: 1.2, mt: 0.25 }}>
                 {value ?? '—'}
               </Typography>
             </Box>
@@ -97,7 +115,7 @@ function ChartCard({ title, children, delay }) {
         '&:hover': { boxShadow: '0 4px 16px rgba(0,0,0,0.08)' },
       }}>
         <CardContent>
-          <Typography variant="subtitle2" fontWeight={700} color="#0f172a" sx={{ mb: 1.5 }}>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5, color: SLATE_900 }}>
             {title}
           </Typography>
           {children}
@@ -173,13 +191,13 @@ export default function AdminPage() {
         {/* Page header */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
           <Box sx={{
-            width: 36, height: 36, borderRadius: 2, bgcolor: '#eff6ff',
+            width: 36, height: 36, borderRadius: 2, bgcolor: INDIGO_BG,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <QueryStatsIcon sx={{ fontSize: 20, color: '#1e40af' }} />
+            <QueryStatsIcon sx={{ fontSize: 20, color: INDIGO_DARK }} />
           </Box>
           <Box>
-            <Typography variant="h5" fontWeight={700} color="#0f172a">Usage Analytics</Typography>
+            <Typography variant="h5" fontWeight={700} sx={{ color: SLATE_900 }}>Usage Analytics</Typography>
             <Typography variant="body2" color="text.secondary">Last 30 days · tenant-scoped audit log</Typography>
           </Box>
         </Box>
@@ -217,9 +235,9 @@ export default function AdminPage() {
                 <ChartCard title="Daily Activity" delay={320}>
                   <LineChart
                     dataset={dailyActivity}
-                    xAxis={[{ dataKey: '_id', scaleType: 'point', tickLabelStyle: { fontSize: 11, fill: '#64748b' } }]}
-                    yAxis={[{ tickLabelStyle: { fontSize: 11, fill: '#64748b' } }]}
-                    series={[{ dataKey: 'count', label: 'Activity', color: '#3b82f6', showMark: false, curve: 'monotoneX' }]}
+                    xAxis={[{ dataKey: '_id', scaleType: 'point', tickLabelStyle: { fontSize: 11, fill: SLATE_500 } }]}
+                    yAxis={[{ tickLabelStyle: { fontSize: 11, fill: SLATE_500 } }]}
+                    series={[{ dataKey: 'count', label: 'Activity', color: INDIGO, showMark: false, curve: 'monotoneX' }]}
                     height={220}
                     margin={{ top: 16, right: 16, bottom: 32, left: 48 }}
                     grid={{ horizontal: true }}
@@ -231,9 +249,9 @@ export default function AdminPage() {
                   <BarChart
                     dataset={topActions.slice(0, 8)}
                     layout="horizontal"
-                    yAxis={[{ dataKey: '_id', scaleType: 'band', tickLabelStyle: { fontSize: 11, fill: '#64748b' } }]}
-                    xAxis={[{ tickLabelStyle: { fontSize: 11, fill: '#64748b' } }]}
-                    series={[{ dataKey: 'count', label: 'Count', color: '#8b5cf6' }]}
+                    yAxis={[{ dataKey: '_id', scaleType: 'band', tickLabelStyle: { fontSize: 11, fill: SLATE_500 } }]}
+                    xAxis={[{ tickLabelStyle: { fontSize: 11, fill: SLATE_500 } }]}
+                    series={[{ dataKey: 'count', label: 'Count', color: PURPLE }]}
                     height={220}
                     margin={{ top: 8, right: 16, bottom: 32, left: 96 }}
                     grid={{ vertical: true }}
@@ -257,12 +275,12 @@ export default function AdminPage() {
                         borderBottom: i < Math.min(activeUsers.length, 8) - 1 ? '1px solid #f1f5f9' : 'none',
                       }}
                     >
-                      <Typography variant="body2" noWrap sx={{ maxWidth: '75%', color: '#334155' }}>
+                      <Typography variant="body2" noWrap sx={{ maxWidth: '75%', color: SLATE_700 }}>
                         {u._id || 'anonymous'}
                       </Typography>
                       <Box component="span" sx={{
                         px: 1, py: 0.25, borderRadius: 1,
-                        bgcolor: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe',
+                        bgcolor: INDIGO_BG, color: INDIGO_DARK, border: '1px solid #c7d2fe',
                         fontSize: '0.7rem', fontWeight: 600,
                       }}>
                         {u.count}
@@ -287,9 +305,9 @@ export default function AdminPage() {
                       <BarChart
                         height={220}
                         dataset={rows}
-                        xAxis={[{ scaleType: 'band', dataKey: 'action', tickLabelStyle: { fontSize: 10, fill: '#64748b', angle: -30, textAnchor: 'end' } }]}
-                        yAxis={[{ tickLabelStyle: { fontSize: 11, fill: '#64748b' } }]}
-                        series={[{ dataKey: 'avgMs', color: '#10b981', valueFormatter: (v) => `${v} ms` }]}
+                        xAxis={[{ scaleType: 'band', dataKey: 'action', tickLabelStyle: { fontSize: 10, fill: SLATE_500, angle: -30, textAnchor: 'end' } }]}
+                        yAxis={[{ tickLabelStyle: { fontSize: 11, fill: SLATE_500 } }]}
+                        series={[{ dataKey: 'avgMs', color: GREEN, valueFormatter: (v) => `${v} ms` }]}
                         margin={{ top: 8, right: 16, bottom: 56, left: 48 }}
                       />
                     );
@@ -307,7 +325,7 @@ export default function AdminPage() {
               px: 2.5, py: 1.5, borderBottom: '1px solid #e2e8f0',
               display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#fff',
             }}>
-              <Typography variant="subtitle2" fontWeight={700} color="#0f172a">Audit Log</Typography>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ color: SLATE_900 }}>Audit Log</Typography>
             </Box>
 
             {/* Filters */}
@@ -347,9 +365,9 @@ export default function AdminPage() {
             ) : (
               <Table size="small">
                 <TableHead>
-                  <TableRow sx={{ bgcolor: '#f8fafc' }}>
+                  <TableRow sx={{ bgcolor: SLATE_50 }}>
                     {['Timestamp', 'Action', 'User', 'Resource', 'Exec (ms)'].map((h) => (
-                      <TableCell key={h} sx={{ fontWeight: 700, color: '#475569', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      <TableCell key={h} sx={{ fontWeight: 700, color: SLATE_500, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                         {h}
                       </TableCell>
                     ))}
@@ -372,7 +390,7 @@ export default function AdminPage() {
                             {ACTION_DISPLAY_LABEL[log.action] || log.action}
                           </Box>
                         </TableCell>
-                        <TableCell sx={{ fontSize: '0.8rem', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', color: '#334155' }}>
+                        <TableCell sx={{ fontSize: '0.8rem', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', color: SLATE_700 }}>
                           {log.userId || '—'}
                         </TableCell>
                         <TableCell sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>
@@ -383,7 +401,7 @@ export default function AdminPage() {
                         <TableCell sx={{
                           fontSize: '0.8rem',
                           fontWeight: log.executionTimeMs > 500 ? 700 : 400,
-                          color: log.executionTimeMs > 500 ? '#dc2626' : 'text.secondary',
+                          color: log.executionTimeMs > 500 ? RED : 'text.secondary',
                         }}>
                           {log.executionTimeMs != null ? `${log.executionTimeMs} ms` : '—'}
                         </TableCell>

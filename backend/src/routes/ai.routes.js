@@ -141,12 +141,15 @@ router.post('/explain', async (req, res) => {
 
 // POST /api/ai/mapping-suggest  (AI-powered recon mapping suggestion)
 router.post('/mapping-suggest', async (req, res) => {
-  const { columnsA, columnsB } = req.body || {};
+  const { columnsA, columnsB, sampleA, sampleB, typesA, typesB } = req.body || {};
   if (!Array.isArray(columnsA) || !Array.isArray(columnsB)) {
     return res.status(400).json({ error: 'columnsA and columnsB must be arrays' });
   }
   try {
-    const result = await aiService.suggestReconMapping({ columnsA, columnsB }, req.user);
+    const result = await aiService.suggestReconMapping(
+      { columnsA, columnsB, sampleA, sampleB, typesA, typesB },
+      req.user,
+    );
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

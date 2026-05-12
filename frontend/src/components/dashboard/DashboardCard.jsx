@@ -260,6 +260,25 @@ export default function DashboardCard({ card, editMode, onDelete, refreshKey }) 
           <ListItemIcon><OpenInNewIcon fontSize="small" /></ListItemIcon>
           <ListItemText>View Report</ListItemText>
         </MenuItem>
+        <MenuItem onClick={() => {
+          const cols = (results?.columns || []).join(', ') || 'unknown';
+          const rowCount = results?.data?.length ?? 0;
+          const col = question?.queryConfig?.collection || '';
+          window.dispatchEvent(new CustomEvent('fyntrac:ai:open', {
+            detail: {
+              prompt: `I have the dashboard card "${card.title || question?.name || 'Untitled'}" open.${col ? ` It reads from "${col}".` : ''} The chart type is ${chartConfig?.chartType || 'table'} and shows ${rowCount} row(s) with columns: ${cols}.
+
+Ask me anything about this card:
+- What are the totals, averages, or trends?
+- Which value is highest or lowest?
+- What does this chart tell us?`,
+            },
+          }));
+          setMenuAnchor(null);
+        }}>
+          <ListItemIcon><AutoAwesomeIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Ask AI about this card</ListItemText>
+        </MenuItem>
         <MenuItem onClick={(e) => { setDownloadAnchor(e.currentTarget); setMenuAnchor(null); }}>
           <ListItemIcon><FullscreenIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Download</ListItemText>

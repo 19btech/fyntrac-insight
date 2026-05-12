@@ -22,6 +22,9 @@ import api from '../../hooks/useQuery';
 import { streamSSE } from '../../hooks/useAI';
 import ChartRenderer from '../charts/ChartRenderer';
 import QueryBuilderPanel from '../query-builder/QueryBuilderPanel';
+import useReportContextStore from '../../store/reportContextStore';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 /**
  * Full-bleed modal for viewing AND editing a saved report. The modal is the
@@ -76,6 +79,28 @@ export default function ReportPreviewDialog({ open, reportId, isNew = false, onC
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
   const [narration, setNarration] = useState({ open: false, text: '', loading: false });
+
+  const setReportCtx = useReportContextStore((s) => s.setReport);
+  const clearReportCtx = useReportContextStore((s) => s.clearReport);
+
+  // Publish active report context for the global AI drawer.
+  useEffect(() => {
+    if (!open) { clearReportCtx(); return; }
+    const cols = results?.columns || [];
+    setReportCtx({
+      kind: 'report',
+      name,
+      description,
+      collection,
+      pipeline: (() => { try { return JSON.parse(pipelineJson); } catch { return []; } })(),
+      builderState,
+      chartType: chartConfig?.chartType || 'table',
+      columns: cols,
+      sampleRows: (results?.data || []).slice(0, 50),
+      rowCount: results?.data?.length ?? null,
+    });
+  }, [open, name, description, collection, pipelineJson, builderState, chartConfig, results]); // eslint-disable-line
+  useEffect(() => () => clearReportCtx(), [clearReportCtx]);
   // Snapshot of the editable values at hydrate time. Dirty = current !== snapshot.
   const baselineRef = useRef('');
   const snapshot = (vals) => JSON.stringify({
@@ -497,9 +522,14 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
                           <CloseIcon sx={{ fontSize: 16 }} />
                         </IconButton>
                       </Stack>
-                      <Typography variant="body2" sx={{ lineHeight: 1.7, color: '#1e293b' }}>
-                        {narration.text || (narration.loading ? 'Writing narrative…' : '')}
-                      </Typography>
+                      <Box sx={{ lineHeight: 1.7, color: '#1e293b', fontSize: '0.875rem',
+                        '& p': { margin: 0, lineHeight: 1.7 },
+                        '& strong': { fontWeight: 700 },
+                      }}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {narration.text || (narration.loading ? 'Writing narrative\u2026' : '')}
+                        </ReactMarkdown>
+                      </Box>
                     </Box>
                   )}
                   {results.truncated && (

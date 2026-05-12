@@ -120,6 +120,11 @@ export default function ReconPreviewDialog({ open, reconId, isNew, onClose, onSa
   });
   const [columnsA, setColumnsA] = useState([]);
   const [columnsB, setColumnsB] = useState([]);
+  const [sampleA, setSampleA] = useState([]);
+  const [sampleB, setSampleB] = useState([]);
+  const [typesA, setTypesA] = useState({});
+  const [typesB, setTypesB] = useState({});
+  const [aiReasoning, setAiReasoning] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -198,15 +203,17 @@ export default function ReconPreviewDialog({ open, reconId, isNew, onClose, onSa
     setDirty(current !== baselineRef.current);
   }, [recon]);
 
-  const loadColumns = useCallback(async (side, setter) => {
-    if (!side?.kind || !side?.refId) return setter([]);
+  const loadColumns = useCallback(async (side, setCol, setSample, setTypes) => {
+    if (!side?.kind || !side?.refId) { setCol([]); setSample([]); setTypes({}); return; }
     try {
       const r = await api.post('/recons/source/columns', { kind: side.kind, refId: side.refId });
-      setter(r.data.columns || []);
-    } catch { setter([]); }
+      setCol(r.data.columns || []);
+      setSample(r.data.sample || []);
+      setTypes(r.data.types || {});
+    } catch { setCol([]); setSample([]); setTypes({}); }
   }, []);
-  useEffect(() => { loadColumns(recon.sourceA, setColumnsA); }, [recon.sourceA, loadColumns]);
-  useEffect(() => { loadColumns(recon.sourceB, setColumnsB); }, [recon.sourceB, loadColumns]);
+  useEffect(() => { loadColumns(recon.sourceA, setColumnsA, setSampleA, setTypesA); }, [recon.sourceA, loadColumns]);
+  useEffect(() => { loadColumns(recon.sourceB, setColumnsB, setSampleB, setTypesB); }, [recon.sourceB, loadColumns]);
 
   // Publish recon context for the global AI drawer.
   useEffect(() => {
@@ -223,6 +230,7 @@ export default function ReconPreviewDialog({ open, reconId, isNew, onClose, onSa
       columnsA,
       columnsB,
       lastRunSummary: runs[0]?.summary || null,
+      latestRunId: runs[0]?._id || null,
       runCount: runs.length,
     });
   }, [open, activeId, recon, columnsA, columnsB, runs, setReconCtx]);
@@ -234,15 +242,20 @@ export default function ReconPreviewDialog({ open, reconId, isNew, onClose, onSa
     if (columnsA.length === 0 || columnsB.length === 0) {
       setError('Load both sources first so columns are available.'); return;
     }
-    setAiSuggestLoading(true); setError('');
+    setAiSuggestLoading(true); setError(''); setAiReasoning('');
     try {
-      const r = await api.post('/ai/mapping-suggest', { columnsA, columnsB });
+      const r = await api.post('/ai/mapping-suggest', {
+        columnsA, columnsB,
+        sampleA: sampleA.slice(0, 15),
+        sampleB: sampleB.slice(0, 15),
+        typesA, typesB,
+      });
       set({ mapping: {
         keys: r.data.keys || [],
         measures: r.data.measures || [],
         attributes: r.data.attributes || [],
       } });
-      if (r.data.reasoning) setSavedMsg(`AI: ${r.data.reasoning}`);
+      if (r.data.reasoning) setAiReasoning(r.data.reasoning);
     } catch (e) { setError(e.response?.data?.error || e.message); }
     finally { setAiSuggestLoading(false); }
   };
@@ -309,8 +322,8 @@ export default function ReconPreviewDialog({ open, reconId, isNew, onClose, onSa
   };
 
   const askAiExplainRecon = () => {
-    const last = recon?.lastRunSummary?.rowCounts
-      ? `Last run: matched=${recon.lastRunSummary.rowCounts.matched ?? 0}, mismatched=${recon.lastRunSummary.rowCounts.mismatched ?? 0}, A-only=${recon.lastRunSummary.rowCounts.onlyA ?? 0}, B-only=${recon.lastRunSummary.rowCounts.onlyB ?? 0}`
+    const last = recon?.lastRun?.summary?.rowCounts
+      ? `Last run: matched=${recon.lastRun.summary.rowCounts.matched ?? 0}, mismatched=${recon.lastRun.summary.rowCounts.mismatched ?? 0}, A-only=${recon.lastRun.summary.rowCounts.onlyA ?? 0}, B-only=${recon.lastRun.summary.rowCounts.onlyB ?? 0}`
       : 'No runs yet';
     window.dispatchEvent(new CustomEvent('fyntrac:ai:open', {
       detail: {
@@ -639,6 +652,8 @@ What would you like to know?`,
                       columnsB={columnsB}
                       onAISuggest={aiSuggest}
                       aiSuggestLoading={aiSuggestLoading}
+                      aiReasoning={aiReasoning}
+                      onClearReasoning={() => setAiReasoning('')}
                     />
                   </SectionCard>
                 </Stack>
@@ -991,6 +1006,8 @@ function RunResultsView({ reconId, runId, runs, onPickRun, onGoToConfig, reconNa
   const [signing, setSigning] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState({ open: false, text: '', loading: false });
 
+  const activeRecon = useReconContextStore((s) => s.recon);
+
   const fetchRun = useCallback(() => {
     if (!runId) return;
     setLoading(true); setError('');
@@ -1005,9 +1022,8 @@ function RunResultsView({ reconId, runId, runs, onPickRun, onGoToConfig, reconNa
   const exportCsv = () => {
     if (!runId) return;
     const url = `${api.defaults.baseURL}/recons/runs/${runId}/export?status=${bucket}`;
-    const token = sessionStorage.getItem('insight_auth_token');
-    const tenant = sessionStorage.getItem('insight_tenant');
-    fetch(url, { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(tenant ? { 'X-Tenant': tenant } : {}) } })
+    const token = sessionStorage.getItem('fyntrac_jwt');
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then((r) => r.blob())
       .then((b) => {
         const a = document.createElement('a');
@@ -1058,7 +1074,7 @@ Keep it concise and finance-focused. Cite specific numbers.`;
     setAiAnalysis({ open: true, text: '', loading: true });
     try {
       let acc = '';
-      await streamSSE('/ai/chat', { messages: [{ role: 'user', content: prompt }], dashboardContext: {} }, (chunk) => {
+      await streamSSE('/ai/chat', { messages: [{ role: 'user', content: prompt }], dashboardContext: { activeRecon: activeRecon || null } }, (chunk) => {
         acc += chunk;
         setAiAnalysis((prev) => ({ ...prev, text: acc }));
       });

@@ -24,6 +24,7 @@ import api from '../hooks/useQuery';
 import KpiTile from '../components/shared/KpiTile';
 import formatKpi from '../components/shared/formatKpi';
 import FilterValueInput from '../components/query-builder/FilterValueInput';
+import useKpiContextStore from '../store/kpiContextStore';
 
 const KPI_TILE_FRAME_SX = {
   height: 220,
@@ -288,6 +289,25 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
   const [previewEval, setPreviewEval] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const previewTimer = useRef(null);
+
+  const setKpiCtx = useKpiContextStore((s) => s.setKpi);
+  const clearKpiCtx = useKpiContextStore((s) => s.clearKpi);
+
+  // Publish KPI context for the global AI drawer.
+  useEffect(() => {
+    if (!open) { clearKpiCtx(); return; }
+    setKpiCtx({
+      name,
+      description,
+      collection: sourceKind === 'collection' ? collection : undefined,
+      definition: usePipeline ? null : definition,
+      pipeline: usePipeline ? (() => { try { return JSON.parse(pipeline); } catch { return []; } })() : [],
+      format,
+      targets,
+      verified,
+    });
+  }, [open, name, description, sourceKind, collection, definition, pipeline, usePipeline, format, targets, verified]); // eslint-disable-line
+  useEffect(() => () => clearKpiCtx(), [clearKpiCtx]);
 
   const suggestTarget = async () => {
     setTargetSuggest({ loading: true, result: null });

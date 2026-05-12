@@ -193,11 +193,257 @@ async function complete({ provider, apiKey, model, system, messages, maxTokens =
   return acc;
 }
 
+// ─── Tool definitions ────────────────────────────────────────────────────────
+
+const TOOL_DESC =
+  'Run a MongoDB aggregation pipeline against a named collection to compute exact results ' +
+  'from ALL rows in the tenant dataset. Use this whenever the user asks for a total, count, ' +
+  'average, max, min, top-N, or any other aggregate that requires the full dataset. ' +
+  'Do NOT use this for questions that can be answered from the sample rows already in context.';
+
+const ANTHROPIC_TOOLS = [
+  {
+    name: 'compute_aggregation',
+    description: TOOL_DESC,
+    input_schema: {
+      type: 'object',
+      properties: {
+        collection: { type: 'string', description: 'MongoDB collection name to query' },
+        pipeline: {
+          type: 'array',
+          items: { type: 'object' },
+          description: 'MongoDB aggregation pipeline stages as an array of stage objects',
+        },
+      },
+      required: ['collection', 'pipeline'],
+    },
+  },
+];
+
+const OPENAI_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'compute_aggregation',
+      description: TOOL_DESC,
+      parameters: {
+        type: 'object',
+        properties: {
+          collection: { type: 'string', description: 'MongoDB collection name to query' },
+          pipeline: {
+            type: 'array',
+            items: { type: 'object' },
+            description: 'MongoDB aggregation pipeline stages',
+          },
+        },
+        required: ['collection', 'pipeline'],
+      },
+    },
+  },
+];
+
+const GEMINI_TOOLS = [
+  {
+    functionDeclarations: [
+      {
+        name: 'compute_aggregation',
+        description: TOOL_DESC,
+        parameters: {
+          type: 'object',
+          properties: {
+            collection: { type: 'string', description: 'MongoDB collection name to query' },
+            pipeline: { type: 'array', description: 'MongoDB aggregation pipeline stages' },
+          },
+          required: ['collection', 'pipeline'],
+        },
+      },
+    ],
+  },
+];
+
+/**
+ * Agentic streaming chat with tool-calling support.
+ * Accepts an `onToolCall(name, input)` async function that executes server-side
+ * tools and returns their result. Yields text deltas to the caller.
+ *
+ * Tool-calling loop (max 5 iterations):
+ *   1. Non-streaming call to detect tool invocations.
+ *   2. If tool_use detected → execute onToolCall, append result, continue loop.
+ *   3. When no tool_use → stream the final answer.
+ *
+ * Falls back to plain streamChat when onToolCall is not provided.
+ */
+async function* streamChatWithTools({
+  provider, apiKey, model, system, messages, maxTokens = 2048, onToolCall,
+}) {
+  if (!onToolCall) {
+    yield* streamChat({ provider, apiKey, model, system, messages, maxTokens });
+    return;
+  }
+
+  const m = model || DEFAULT_MODELS[provider];
+  const MAX_ITERATIONS = 5;
+
+  // ── Anthropic ──────────────────────────────────────────────────────────────
+  if (provider === 'anthropic') {
+    const a = clientFor(provider, apiKey);
+    let anthropicMessages = messages.filter((x) => x.role !== 'system');
+
+    for (let i = 0; i < MAX_ITERATIONS; i++) {
+      const resp = await a.messages.create({
+        model: m, max_tokens: maxTokens, system,
+        tools: ANTHROPIC_TOOLS,
+        messages: anthropicMessages,
+      });
+
+      if (resp.stop_reason === 'tool_use') {
+        const toolBlock = resp.content.find((b) => b.type === 'tool_use');
+        const toolResult = await onToolCall(toolBlock.name, toolBlock.input);
+        anthropicMessages = [
+          ...anthropicMessages,
+          { role: 'assistant', content: resp.content },
+          {
+            role: 'user',
+            content: [{
+              type: 'tool_result',
+              tool_use_id: toolBlock.id,
+              content: JSON.stringify(toolResult),
+            }],
+          },
+        ];
+        continue;
+      }
+
+      // No tool use — stream the final answer without tools so we get deltas.
+      const stream = a.messages.stream({
+        model: m, max_tokens: maxTokens, system,
+        messages: anthropicMessages,
+      });
+      for await (const chunk of stream) {
+        if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
+          yield chunk.delta.text;
+        }
+      }
+      return;
+    }
+
+    // Max iterations exhausted — stream without tools.
+    const stream = a.messages.stream({ model: m, max_tokens: maxTokens, system, messages: anthropicMessages });
+    for await (const chunk of stream) {
+      if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
+        yield chunk.delta.text;
+      }
+    }
+    return;
+  }
+
+  // ── OpenAI ─────────────────────────────────────────────────────────────────
+  if (provider === 'openai') {
+    const o = clientFor(provider, apiKey);
+    const sysMsg = system ? [{ role: 'system', content: system }] : [];
+    let openaiMessages = [...sysMsg, ...messages];
+
+    for (let i = 0; i < MAX_ITERATIONS; i++) {
+      const resp = await o.chat.completions.create({
+        model: m, max_tokens: maxTokens,
+        tools: OPENAI_TOOLS, tool_choice: 'auto',
+        messages: openaiMessages,
+      });
+
+      const choice = resp.choices[0];
+      if (choice.finish_reason === 'tool_calls') {
+        const tc = choice.message.tool_calls[0];
+        let input;
+        try { input = JSON.parse(tc.function.arguments); } catch { input = {}; }
+        const toolResult = await onToolCall(tc.function.name, input);
+        openaiMessages = [
+          ...openaiMessages,
+          { role: 'assistant', content: choice.message.content || null, tool_calls: choice.message.tool_calls },
+          { role: 'tool', tool_call_id: tc.id, content: JSON.stringify(toolResult) },
+        ];
+        continue;
+      }
+
+      // Stream final answer without tools.
+      const stream = await o.chat.completions.create({
+        model: m, max_tokens: maxTokens, stream: true,
+        messages: openaiMessages,
+      });
+      for await (const chunk of stream) {
+        const t = chunk.choices?.[0]?.delta?.content;
+        if (t) yield t;
+      }
+      return;
+    }
+
+    // Max iterations exhausted.
+    const stream = await o.chat.completions.create({
+      model: m, max_tokens: maxTokens, stream: true, messages: openaiMessages,
+    });
+    for await (const chunk of stream) {
+      const t = chunk.choices?.[0]?.delta?.content;
+      if (t) yield t;
+    }
+    return;
+  }
+
+  // ── Gemini ─────────────────────────────────────────────────────────────────
+  if (provider === 'gemini') {
+    const g = clientFor(provider, apiKey).getGenerativeModel({ model: m, systemInstruction: system });
+
+    let geminiContents = messages
+      .filter((x) => x.role !== 'system')
+      .map((x) => ({
+        role: x.role === 'assistant' ? 'model' : 'user',
+        parts: Array.isArray(x.content) ? x.content : [{ text: x.content }],
+      }));
+
+    for (let i = 0; i < MAX_ITERATIONS; i++) {
+      const resp = await g.generateContent({ contents: geminiContents, tools: GEMINI_TOOLS });
+      const candidate = resp.response.candidates?.[0];
+      const funcCallPart = candidate?.content?.parts?.find((p) => p.functionCall);
+
+      if (funcCallPart) {
+        const { name, args } = funcCallPart.functionCall;
+        const toolResult = await onToolCall(name, args);
+        geminiContents = [
+          ...geminiContents,
+          { role: 'model', parts: candidate.content.parts },
+          {
+            role: 'user',
+            parts: [{ functionResponse: { name, response: { output: JSON.stringify(toolResult) } } }],
+          },
+        ];
+        continue;
+      }
+
+      // Stream final answer.
+      const streamResp = await g.generateContentStream({ contents: geminiContents });
+      for await (const chunk of streamResp.stream) {
+        const t = typeof chunk.text === 'function' ? chunk.text() : '';
+        if (t) yield t;
+      }
+      return;
+    }
+
+    // Max iterations exhausted.
+    const streamResp = await g.generateContentStream({ contents: geminiContents });
+    for await (const chunk of streamResp.stream) {
+      const t = typeof chunk.text === 'function' ? chunk.text() : '';
+      if (t) yield t;
+    }
+    return;
+  }
+
+  throw new Error(`Unsupported provider: ${provider}`);
+}
+
 module.exports = {
   DEFAULT_MODELS,
   ANTHROPIC_MODELS,
   testApiKey,
   listModels,
   streamChat,
+  streamChatWithTools,
   complete,
 };

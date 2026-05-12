@@ -89,7 +89,7 @@ export default function AppShell() {
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      <Sidebar open={sidebarOpen} width={sidebarWidth} />
+      <Sidebar open={sidebarOpen} width={sidebarWidth} onToggle={() => setSidebarOpen((o) => !o)} />
       <Box
         sx={{
           display: 'flex',

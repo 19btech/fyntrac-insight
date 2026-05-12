@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Box, Stack, Typography, Table, TableHead, TableRow, TableCell, TableBody,
-  Select, MenuItem, IconButton, Button, Chip, FormControl, TextField, Tooltip,
+  Select, MenuItem, IconButton, Button, Chip, FormControl, TextField, Tooltip, Alert,
 } from '@mui/material';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import AddIcon from '@mui/icons-material/Add';
@@ -161,7 +161,7 @@ function MappingTable({ title, rows, onChange, columnsA, columnsB, withTolerance
   );
 }
 
-export default function MappingWizard({ mapping, onChange, columnsA, columnsB, onAISuggest, aiSuggestLoading }) {
+export default function MappingWizard({ mapping, onChange, columnsA, columnsB, onAISuggest, aiSuggestLoading, aiReasoning, onClearReasoning }) {
   const set = (k, v) => onChange({ ...mapping, [k]: v });
   const hasColumns = (columnsA?.length ?? 0) > 0 && (columnsB?.length ?? 0) > 0;
   return (
@@ -186,6 +186,16 @@ export default function MappingWizard({ mapping, onChange, columnsA, columnsB, o
           </Button>
         )}
       </Stack>
+      {aiReasoning && (
+        <Alert
+          severity="info"
+          onClose={onClearReasoning}
+          sx={{ borderRadius: 2, fontSize: 13, '& .MuiAlert-message': { lineHeight: 1.5 } }}
+          icon={<AutoAwesomeIcon sx={{ fontSize: 16, color: '#7c3aed' }} />}
+        >
+          <strong>AI reasoning:</strong> {aiReasoning}
+        </Alert>
+      )}
       <MappingTable
         title="Keys (identify the same row)"
         rows={mapping.keys || []} onChange={(rows) => set('keys', rows)}

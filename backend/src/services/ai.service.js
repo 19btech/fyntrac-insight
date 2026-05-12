@@ -1,5 +1,6 @@
 const credService = require('./ai-credentials.service');
 const providers = require('./ai-providers.service');
+const mongoService = require('./mongo.service');
 
 /**
  * Resolve effective AI credentials for a user.
@@ -83,7 +84,12 @@ CHAT BEHAVIOUR RULES (apply in ALL conversational responses):
 5. Never say "I'm giving you steps you can run yourself", "here is a pipeline you can use", or "you can modify this query". Instead, compute the result and present it directly.
 6. Format answers with markdown: **bold** key numbers, use tables for multi-column results, use bullet points for lists of steps or options. Keep answers concise and finance-friendly.
 7. ALWAYS scope any internal understanding to tenantId "${tenantId}".
-${conservative ? '8. CONSERVATIVE MODE: only reason about collections referenced by an existing Dataset or KPI.' : ''}
+8. When the active context says sample is PARTIAL and the user asks for exact computations (total, sum, average, max, min, top-N, highest, lowest, count) — use the compute_aggregation tool against the FULL dataset using the collection and pipeline shown in the active context block. Prepend the report/dataset pipeline before your aggregation stages so field transformations are applied correctly.
+9. When the active context says sample is COMPLETE (all rows present), compute directly from those rows — do NOT call the tool, it is unnecessary.
+10. After receiving compute_aggregation results, answer directly in plain English with **bold** key numbers. Do not mention the tool, the pipeline, or any technical details.
+11. NEVER say "there was an issue", "I encountered an error", or "I was unable to retrieve" as a result of tool failure. If the tool fails or returns empty results, silently compute from the sample rows and answer directly.
+12. For UI how-to questions (how do I filter, how do I group), answer in plain English steps — no tool use needed.
+${conservative ? '11. CONSERVATIVE MODE: only reason about collections referenced by an existing Dataset or KPI.' : ''}
 
 Current tenantId: ${tenantId}
 Current role: ${role}`;
@@ -93,17 +99,26 @@ function buildActiveReportBlock(dashboardContext) {
   const r = dashboardContext && dashboardContext.activeReport;
   if (!r) return '';
   const cols = (r.columns || []).map((c) => (typeof c === 'string' ? c : c.name)).filter(Boolean);
-  const samplePreview = Array.isArray(r.sampleRows) && r.sampleRows.length
-    ? JSON.stringify(r.sampleRows.slice(0, 25))
+  const sampleRows = Array.isArray(r.sampleRows) ? r.sampleRows.slice(0, 50) : [];
+  const samplePreview = sampleRows.length
+    ? JSON.stringify(sampleRows)
     : '(no rows yet — the report has not been run)';
+  const totalRows = r.rowCount ?? sampleRows.length;
+  const isComplete = sampleRows.length >= totalRows && sampleRows.length > 0;
+  const completenessNote = sampleRows.length === 0
+    ? 'Sample status: NO DATA YET'
+    : isComplete
+      ? `Sample status: COMPLETE — all ${totalRows} row(s) are in the sample above. Compute aggregations directly from these rows; do NOT use the compute_aggregation tool.`
+      : `Sample status: PARTIAL — ${sampleRows.length} of ${totalRows} rows shown. Use the compute_aggregation tool for exact aggregations, prepending the pipeline above before your stages.`;
   return `\n\nACTIVE REPORT (the user is currently viewing this; ground ALL answers here):
 Name: ${r.name || '(unnamed)'}${r.description ? `\nDescription: ${r.description}` : ''}
 Source collection: ${r.collection || '(none)'}
 Chart type: ${r.chartType || 'table'}
-Row count: ${r.rowCount ?? 'unknown'}
+Total row count: ${totalRows}
 Columns: ${cols.length ? cols.join(', ') : '(unknown)'}
 Pipeline: ${JSON.stringify(r.pipeline || [])}
-Sample rows (first 25 of ${r.rowCount ?? '?'}): ${samplePreview}
+${completenessNote}
+Sample rows (${sampleRows.length} of ${totalRows}): ${samplePreview}
 
 MODAL GUIDE — when the user asks "how does this work?" or "what do these tabs do?", explain:
 - Overview tab: name, description, data source, chart type settings
@@ -113,10 +128,10 @@ MODAL GUIDE — when the user asks "how does this work?" or "what do these tabs 
 - Side rail: "Ask AI to explain" to open this chat, "Narrate results" to auto-write a business summary, "Run" to execute the report
 
 DATA ANALYSIS — when the user asks for sums, averages, highest/lowest, counts, or any aggregation:
-- Compute the result yourself directly from the sample rows above
-- Present the numeric answer with **bold** formatting
-- If the sample is partial (e.g. 25 of 1,234 rows), note it and still give the computed figure for the visible rows
-- Use a markdown table if showing multiple values side by side
+- Check the sample status above first
+- If COMPLETE: compute directly from the sample rows and answer with **bold** key numbers
+- If PARTIAL: use the compute_aggregation tool (prepend the pipeline above before your stages)
+- NEVER say "based on sample rows" when the sample is COMPLETE — just give the answer directly
 
 Do NOT return MongoDB code, pipelines, or query syntax. Do NOT say "run this query" or "you can filter by adding a match stage". Give direct, computed answers in plain finance-friendly English.`;
 }
@@ -125,9 +140,17 @@ function buildActiveDatasetBlock(dashboardContext) {
   const d = dashboardContext && dashboardContext.activeDataset;
   if (!d) return '';
   const cols = (d.columns || []).map((c) => (typeof c === 'string' ? c : c.name)).filter(Boolean);
-  const sampleRows = Array.isArray(d.sampleRows) && d.sampleRows.length
-    ? JSON.stringify(d.sampleRows.slice(0, 25))
+  const dSampleRows = Array.isArray(d.sampleRows) ? d.sampleRows.slice(0, 25) : [];
+  const dSamplePreview = dSampleRows.length
+    ? JSON.stringify(dSampleRows)
     : '(no preview yet — the dataset has not been run)';
+  const dTotalRows = d.rowCount ?? dSampleRows.length;
+  const dIsComplete = dSampleRows.length >= dTotalRows && dSampleRows.length > 0;
+  const dCompletenessNote = dSampleRows.length === 0
+    ? 'Sample status: NO DATA YET'
+    : dIsComplete
+      ? `Sample status: COMPLETE — all ${dTotalRows} row(s) are in the sample above. Compute aggregations directly from these rows; do NOT use the compute_aggregation tool.`
+      : `Sample status: PARTIAL — ${dSampleRows.length} of ${dTotalRows} rows shown. Use the compute_aggregation tool for exact aggregations, using the collection and compiled pipeline above as a prefix before your stages.`;
   const stepsSummary = Array.isArray(d.steps) && d.steps.length
     ? d.steps.map((s, i) => `  ${i + 1}. ${s.kind}${s.disabled ? ' (disabled)' : ''}: ${JSON.stringify({ ...s, kind: undefined, disabled: undefined })}`).join('\n')
     : '  (no steps yet)';
@@ -135,12 +158,13 @@ function buildActiveDatasetBlock(dashboardContext) {
 Name: ${d.name || '(unnamed)'}${d.description ? `\nDescription: ${d.description}` : ''}
 Source table: ${d.sourceCollection || '(none)'}
 Verified: ${d.verified ? 'yes' : 'no'}
-Row count (preview): ${d.rowCount ?? 'unknown'}
+Total row count: ${dTotalRows}
 Output columns: ${cols.length ? cols.join(', ') : '(unknown)'}
 Build steps:
 ${stepsSummary}
 Compiled pipeline: ${JSON.stringify(d.pipeline || [])}
-Sample rows (first 25 of ${d.rowCount ?? '?'}): ${sampleRows}
+${dCompletenessNote}
+Sample rows (${dSampleRows.length} of ${dTotalRows}): ${dSamplePreview}
 
 MODAL GUIDE — when the user asks how this modal works or what the tabs do:
 - Side rail: set Name, Description, Source table, Trust/Certification, Sampling; "Ask AI to explain" opens this chat; "Run preview" runs the pipeline; "Save dataset" persists
@@ -155,9 +179,10 @@ MODAL GUIDE — when the user asks how this modal works or what the tabs do:
 - Limit step: takes the top N rows
 
 DATA ANALYSIS — for sums, averages, highest/lowest, counts, or any aggregation:
-- Compute the result yourself directly from the sample rows above and present the numeric answer with **bold** formatting
-- If the sample is partial, note it (e.g. "Based on 25 of ${d.rowCount ?? '?'} rows…") and still give the computed figure
-- Use a markdown table when comparing multiple values
+- Check the sample status above first
+- If COMPLETE: compute directly from the sample rows and answer with **bold** key numbers
+- If PARTIAL: use the compute_aggregation tool
+- NEVER say "based on sample rows" when the sample is COMPLETE — just give the answer directly
 
 Do NOT return MongoDB code, pipelines, or query syntax. Do NOT say "run this query", "add a Group step with this JSON", or "you can filter by writing a match stage". Give direct answers and plain-English UI guidance.`;
 }
@@ -200,12 +225,90 @@ MODAL GUIDE — when the user asks how this modal works or what the tabs do:
 When the user asks "what is being reconciled?", "why are there variances?", "what does mismatch mean?", "how do I add a key?", "how do I set a tolerance?", or anything about interpreting results, answer DIRECTLY from the configuration and last-run summary above using plain finance-friendly English. Do NOT return queries or pipeline code.`;
 }
 
+function buildActiveKpiBlock(dashboardContext) {
+  const k = dashboardContext && dashboardContext.activeKpi;
+  if (!k) return '';
+  const fmtLabel = (f) => {
+    if (!f) return 'number';
+    let s = f.kind || 'number';
+    if (f.currencyCode) s += ` (${f.currencyCode})`;
+    if (f.compact) s += ', compact';
+    return s;
+  };
+  const targetsLine = k.targets
+    ? `Target: ${k.targets.value ?? 'none'}, direction: ${k.targets.direction || 'higherBetter'}`
+    : 'No target set';
+  const defLine = k.definition
+    ? JSON.stringify(k.definition)
+    : (k.pipeline?.length ? `Custom pipeline (${k.pipeline.length} stages)` : '(none)');
+  return `\n\nACTIVE KPI (the user is currently editing this metric; ground ALL answers here):
+Name: ${k.name || '(unnamed)'}${k.description ? `\nDescription: ${k.description}` : ''}
+Source collection: ${k.collection || '(none)'}
+Verified: ${k.verified ? 'yes' : 'no'}
+Format: ${fmtLabel(k.format)}
+${targetsLine}
+Definition: ${defLine}
+
+MODAL GUIDE — when the user asks how this modal works:
+- Source tab: pick the data source (Collection, Dataset, or Report) and the field to aggregate
+- Definition tab: set the aggregation (Sum, Average, Count, Min, Max), optional denominator for ratios, and date/time filter
+- Format tab: choose number, currency, or percent; set decimals, compact notation, prefix/suffix
+- Targets tab: set a goal value and direction (higher is better / lower is better); add colour bands for red/amber/green RAG status
+- Preview tile: updates live every time the config changes — shows the current computed value, trend, and goal bar
+
+When the user asks about the KPI value, trend, or target, answer from the definition and current values above. Do NOT show pipeline code.`;
+}
+
+/**
+ * Execute a compute_aggregation tool call on behalf of the AI.
+ * Validates the collection, caps output at 500 rows, and returns the result.
+ */
+async function executeComputeAggregation(collection, pipeline, user) {
+  try {
+    const available = await mongoService.getCollections(user);
+    if (!available.includes(collection)) {
+      return { error: `Collection '${collection}' not found or not accessible.` };
+    }
+    if (!Array.isArray(pipeline)) {
+      return { error: 'pipeline must be an array of aggregation stage objects.' };
+    }
+    // Cap at 500 rows unless the pipeline already has a $limit at the end.
+    const cappedPipeline = [...pipeline];
+    const lastStage = cappedPipeline[cappedPipeline.length - 1];
+    if (!lastStage || Object.keys(lastStage)[0] !== '$limit') {
+      cappedPipeline.push({ $limit: 500 });
+    }
+    const result = await mongoService.executePipeline(collection, cappedPipeline, user);
+    const truncated = result.data.length >= 500;
+    return {
+      rows: result.data.slice(0, 500),
+      rowCount: result.data.length,
+      columns: result.columns,
+      executionTimeMs: result.executionTime,
+      truncated,
+    };
+  } catch (err) {
+    return { error: err.message || String(err) };
+  }
+}
+
 async function* streamChatResponse(messages, schemaContext, user, dashboardContext) {
   const creds = await resolveCreds(user);
   const grounded = await buildGroundedContext(user);
   const baseSystem = buildSystemPrompt(schemaContext, grounded, user.tenantId, user.role, creds.conservative);
-  const system = baseSystem + buildActiveReportBlock(dashboardContext) + buildActiveDatasetBlock(dashboardContext) + buildActiveReconBlock(dashboardContext);
-  yield* providers.streamChat({ ...creds, system, messages, maxTokens: 2048 });
+  const system =
+    baseSystem +
+    buildActiveReportBlock(dashboardContext) +
+    buildActiveDatasetBlock(dashboardContext) +
+    buildActiveReconBlock(dashboardContext) +
+    buildActiveKpiBlock(dashboardContext);
+  const onToolCall = async (name, input) => {
+    if (name === 'compute_aggregation') {
+      return executeComputeAggregation(input.collection, input.pipeline, user);
+    }
+    return { error: `Unknown tool: ${name}` };
+  };
+  yield* providers.streamChatWithTools({ ...creds, system, messages, maxTokens: 2048, onToolCall });
 }
 
 async function generatePipeline(naturalLanguage, schemaContext, user) {
@@ -345,34 +448,47 @@ Return ONLY JSON:
  * AI-powered mapping suggestion — analyses column names on both sides and
  * returns structured { keys, measures, attributes } with reasoning.
  */
-async function suggestReconMapping({ columnsA, columnsB }, user) {
+async function suggestReconMapping({ columnsA, columnsB, sampleA, sampleB, typesA, typesB }, user) {
   const creds = await resolveCreds(user);
-  const grounded = await buildGroundedContext(user);
-  const system = buildSystemPrompt([], grounded, user.tenantId, user.role, creds.conservative);
 
-  const userPrompt = `You are configuring a financial reconciliation between two datasets. Suggest a mapping.
+  // Format a compact sample block — shows the AI actual values so it can reason about semantics
+  const formatSample = (cols, sample, types) => {
+    if (!sample || sample.length === 0) return '(no sample data available)';
+    const typeHints = cols.map((c) => `${c}[${(types && types[c]) || '?'}]`).join(', ');
+    const rows = sample.slice(0, 10).map((r) =>
+      cols.map((c) => JSON.stringify(r[c] ?? null)).join(' | ')
+    ).join('\n');
+    return `Columns: ${typeHints}\n${cols.join(' | ')}\n${rows}`;
+  };
 
-Side A columns: ${(columnsA || []).join(', ')}
-Side B columns: ${(columnsB || []).join(', ')}
+  const userPrompt = `You are configuring a financial reconciliation between two datasets. Suggest a column mapping.
+
+=== Side A ===
+${formatSample(columnsA, sampleA, typesA)}
+
+=== Side B ===
+${formatSample(columnsB, sampleB, typesB)}
 
 Rules:
-- Keys: columns forming a unique row identifier on BOTH sides (e.g. transaction ID, reference, invoice number, date+counterparty). Match by name similarity and finance semantics.
+- Keys: columns forming a unique row identifier on BOTH sides (e.g. transaction ID, reference, invoice number, date+counterparty). Only pair columns whose values actually overlap (same format, same kind of value).
 - Measures: numeric amount/balance/quantity columns to compare numerically. For currency amounts set abs=0.01, pct=0.001. For integer counts set abs=0, pct=0.
-- Attributes: non-numeric descriptive columns (currency code, status, entity name) compared for exact equality. Keep this list short.
-- Only suggest pairs with a clear semantic match. Never invent columns not in the lists above.
+- Attributes: non-numeric descriptive columns (currency code, status, entity name) compared for exact equality. Keep this list short — only include if clearly matching.
+- ONLY suggest pairs with a clear semantic AND value-format match. Never invent columns not listed above.
+- If a column has no clear match on the other side, omit it.
 
 Return ONLY valid JSON (no prose, no fences):
 {
   "keys": [{"a": "<colFromA>", "b": "<colFromB>", "transform": ""}],
   "measures": [{"a": "<colFromA>", "b": "<colFromB>", "transform": "", "tolerance": {"abs": 0.01, "pct": 0.001}}],
   "attributes": [{"a": "<colFromA>", "b": "<colFromB>", "transform": ""}],
-  "reasoning": "<one sentence explaining key mapping choices>"
+  "reasoning": "<one concise sentence explaining the key mapping choices>"
 }`;
 
   const text = await providers.complete({
-    ...creds, system,
+    ...creds,
+    system: 'You are a financial data integration specialist. You analyse column headers and sample data to suggest reconciliation mappings. Be precise and conservative — only match columns you are confident about.',
     messages: [{ role: 'user', content: userPrompt }],
-    maxTokens: 1000,
+    maxTokens: 1200,
   });
 
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -380,7 +496,19 @@ Return ONLY valid JSON (no prose, no fences):
   const start = candidate.indexOf('{');
   const end = candidate.lastIndexOf('}');
   if (start !== -1 && end > start) {
-    try { return JSON.parse(candidate.slice(start, end + 1)); } catch { /* fall through */ }
+    try {
+      const parsed = JSON.parse(candidate.slice(start, end + 1));
+      // Validate: strip any pairs where the AI hallucinated column names
+      const setA = new Set(columnsA);
+      const setB = new Set(columnsB);
+      const valid = (pair) => setA.has(pair.a) && setB.has(pair.b);
+      return {
+        keys: (parsed.keys || []).filter(valid),
+        measures: (parsed.measures || []).filter(valid),
+        attributes: (parsed.attributes || []).filter(valid),
+        reasoning: parsed.reasoning || '',
+      };
+    } catch { /* fall through */ }
   }
   return { keys: [], measures: [], attributes: [], reasoning: 'Could not parse AI response — please map manually.' };
 }

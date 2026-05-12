@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Drawer, Box, Typography, IconButton, TextField, Divider,
-  CircularProgress, Tooltip, Stack, Button, Chip
+  CircularProgress, Tooltip, Stack, Button, Chip,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import SendIcon from '@mui/icons-material/Send';
@@ -15,6 +15,7 @@ import api from '../../hooks/useQuery';
 import useReportContextStore from '../../store/reportContextStore';
 import useDatasetContextStore from '../../store/datasetContextStore';
 import useReconContextStore from '../../store/reconContextStore';
+import useKpiContextStore from '../../store/kpiContextStore';
 
 /**
  * Fyntrac AI co-pilot drawer.
@@ -46,6 +47,7 @@ export default function AIChatDrawer({ open, onClose, context, initialPrompt, se
   const activeReport = useReportContextStore((s) => s.report);
   const activeDataset = useDatasetContextStore((s) => s.dataset);
   const activeRecon = useReconContextStore((s) => s.recon);
+  const activeKpi = useKpiContextStore((s) => s.kpi);
 
   const refreshSettings = async () => {
     try {
@@ -116,7 +118,7 @@ export default function AIChatDrawer({ open, onClose, context, initialPrompt, se
         .filter((t) => t.kind === 'chat')
         .map(({ role, content }) => ({ role, content }));
       let acc = '';
-      const mergedContext = { ...(context || {}), activeReport: activeReport || null, activeDataset: activeDataset || null, activeRecon: activeRecon || null };
+      const mergedContext = { ...(context || {}), activeReport: activeReport || null, activeDataset: activeDataset || null, activeRecon: activeRecon || null, activeKpi: activeKpi || null };
       await streamSSE('/ai/chat', { messages: apiMessages, dashboardContext: mergedContext }, (chunk) => {
         acc += chunk;
         setTurns((prev) => {
@@ -148,7 +150,7 @@ export default function AIChatDrawer({ open, onClose, context, initialPrompt, se
     setPlanning(true);
     setTurns((prev) => [...prev, { kind: 'plan', role: 'assistant', loading: true, prompt, intent }]);
     try {
-      const mergedCtx = { ...(context || {}), activeReport: activeReport || null, activeDataset: activeDataset || null, activeRecon: activeRecon || null };
+      const mergedCtx = { ...(context || {}), activeReport: activeReport || null, activeDataset: activeDataset || null, activeRecon: activeRecon || null, activeKpi: activeKpi || null };
       const { data } = await api.post('/ai/plan', { prompt, intent, currentContext: mergedCtx });
       setTurns((prev) => {
         const out = [...prev];

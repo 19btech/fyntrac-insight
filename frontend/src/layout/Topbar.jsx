@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AppBar, Toolbar, IconButton, Box, Typography, Avatar, Tooltip, Menu, MenuItem,
-  Breadcrumbs, Link, Button, Autocomplete, TextField, InputAdornment, Chip, Stack,
+  Breadcrumbs, Link, Button, Autocomplete, TextField, InputAdornment, Chip, Stack, Divider,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -18,17 +18,16 @@ import BalanceIcon from '@mui/icons-material/Balance';
 import SettingsIcon from '@mui/icons-material/Settings';
 import usePageTitleStore from '../store/pageTitleStore';
 import api from '../hooks/useQuery';
-import { Divider } from '@mui/material';
 
 const OBJECT_ID_RX = /^[a-f0-9]{24}$/i;
 
 const SEARCH_TYPES = {
-  dashboard: { label: 'Dashboard', icon: <DashboardIcon fontSize="small" /> },
-  question: { label: 'Report', icon: <QuestionAnswerIcon fontSize="small" /> },
-  collection: { label: 'Collection', icon: <FolderIcon fontSize="small" /> },
-  model: { label: 'Dataset', icon: <ScienceIcon fontSize="small" /> },
-  metric: { label: 'KPI', icon: <SpeedIcon fontSize="small" /> },
-  recon: { label: 'Reconciliation', icon: <BalanceIcon fontSize="small" /> },
+  dashboard:  { label: 'Dashboard',    icon: <DashboardIcon fontSize="small" /> },
+  question:   { label: 'Report',       icon: <QuestionAnswerIcon fontSize="small" /> },
+  collection: { label: 'Collection',   icon: <FolderIcon fontSize="small" /> },
+  model:      { label: 'Dataset',      icon: <ScienceIcon fontSize="small" /> },
+  metric:     { label: 'KPI',          icon: <SpeedIcon fontSize="small" /> },
+  recon:      { label: 'Reconciliation', icon: <BalanceIcon fontSize="small" /> },
 };
 
 function useBreadcrumbs(pageTitle) {
@@ -36,8 +35,11 @@ function useBreadcrumbs(pageTitle) {
   const segs = pathname.split('/').filter(Boolean);
   if (segs.length === 0) return [{ label: 'Home', path: '/' }];
   const labels = {
-    home: 'Home', browse: 'Browse', dashboard: 'Dashboard', question: 'Reports',
-    collection: 'Collection', admin: 'Usage Analytics', metrics: 'KPIs', models: 'Datasets',
+    home: 'Home', browse: 'Browse',
+    dashboard: 'Dashboard', dashboards: 'Dashboards',
+    question: 'Report', questions: 'Reports', reports: 'Reports',
+    collection: 'Collection', collections: 'Collections',
+    admin: 'Usage Analytics', metrics: 'KPIs', models: 'Datasets',
     recons: 'Reconciliations', recon: 'Reconciliation', dataset: 'Dataset',
     bookmarks: 'Bookmarks', trash: 'Trash', search: 'Search', settings: 'Settings',
   };
@@ -69,9 +71,7 @@ function useSearchIndex() {
 
 /**
  * Read firstName and tenant from the URL query string on first load.
- * Persists to sessionStorage so the values survive in-app navigation
- * (the ?firstName=...&tenant=... params are only present on the initial
- * redirect from fyntrac-web).
+ * Persists to sessionStorage so the values survive in-app navigation.
  */
 function useProfile() {
   const [firstName] = useState(() => {
@@ -171,45 +171,61 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
         zIndex: 1100,
         top: 0,
         left: leftOffset,
-        // width must be explicitly calculated — MUI AppBar defaults to width:100%
-        // which causes it to overflow the viewport by leftOffset pixels when left is set.
         width: `calc(100% - ${leftOffset}px)`,
-        transition: 'left 0.2s ease, width 0.2s ease',
+        transition: 'left 0.2s ease, width 0.2s ease'
       }}>
-      <Toolbar sx={{
-        height, minHeight: `${height}px !important`, px: 2,
-        display: 'flex', alignItems: 'center', gap: 1,
-      }}>
+      <Toolbar sx={{ height, minHeight: `${height}px !important`, pl: 0, pr: 2, position: 'relative' }}>
+        {/* LEFT zone: hamburger + breadcrumbs */}
+        <IconButton
+          edge="start"
+          onClick={onMenuClick}
+          size="small"
+          sx={{ color: 'text.secondary', flexShrink: 0, alignSelf: 'center', ml: 0 }}
+        >
+          <MenuIcon />
+        </IconButton>
+        <Box sx={{ ml: 2, minWidth: 0, overflow: 'hidden', flexGrow: 1 }}>
+          <Typography
+            sx={{
+              display: 'block',
+              fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif',
+              fontSize: '0.6875rem',
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: '#64748b',
+              lineHeight: 1.1,
+            }}
+          >
+            Workspace
+          </Typography>
+          <Breadcrumbs separator="/" sx={{ fontSize: '0.8125rem', color: 'text.secondary',
+            '& .MuiBreadcrumbs-separator': { mx: 0.75 } }}>
+            {crumbs.map((c, i) =>
+              i === crumbs.length - 1 ? (
+                <Typography key={c.path} sx={{ fontSize: '1rem', color: 'text.primary', fontWeight: 700, whiteSpace: 'nowrap', lineHeight: 1.2 }}>
+                  {c.label}
+                </Typography>
+              ) : (
+                <Link key={c.path} component="button" underline="hover" onClick={() => navigate(c.path)}
+                  sx={{ fontSize: '0.8125rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                  {c.label}
+                </Link>
+              )
+            )}
+          </Breadcrumbs>
+        </Box>
 
-        {/* LEFT zone: hamburger + breadcrumbs — shrinks but never pushes right zone off screen */}
-        <Stack direction="row" alignItems="center" spacing={1}
-          sx={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
-          <IconButton onClick={onMenuClick} size="small" sx={{ color: 'text.secondary', flexShrink: 0 }}>
-            <MenuIcon />
-          </IconButton>
-          <Box sx={{ minWidth: 0, overflow: 'hidden' }}>
-            <Breadcrumbs separator="/" sx={{
-              fontSize: '0.8125rem', color: 'text.secondary',
-              '& .MuiBreadcrumbs-separator': { mx: 0.75 }
-            }}>
-              {crumbs.map((c, i) =>
-                i === crumbs.length - 1 ? (
-                  <Typography key={c.path} sx={{ fontSize: '0.8125rem', color: 'text.primary', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                    {c.label}
-                  </Typography>
-                ) : (
-                  <Link key={c.path} component="button" underline="hover" onClick={() => navigate(c.path)}
-                    sx={{ fontSize: '0.8125rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
-                    {c.label}
-                  </Link>
-                )
-              )}
-            </Breadcrumbs>
-          </Box>
-        </Stack>
-
-        {/* CENTRE zone: search bar — grows but won't overflow left/right zones */}
-        <Box sx={{ flex: '2 1 0', minWidth: 0, maxWidth: 520, px: 1 }}>
+        {/* CENTRE zone: search bar — absolutely centred in the toolbar */}
+        <Box sx={{
+          position: 'absolute',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: '100%',
+          maxWidth: 520,
+          px: 1,
+          display: { xs: 'none', md: 'block' } // hide absolutely positioned center box on very narrow screens if overlapping
+        }}>
           <Autocomplete
             freeSolo openOnFocus
             options={suggestions}
@@ -229,17 +245,13 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
                 <Box component="li" {...props} key={`${option._type}-${option._id}`} sx={{ gap: 1.25, py: 0.75 }}>
                   <Box sx={{ color: 'primary.main', display: 'flex' }}>{meta.icon}</Box>
                   <Stack sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography sx={{
-                      fontSize: '0.8125rem', fontWeight: 500, color: 'text.primary',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-                    }}>
+                    <Typography sx={{ fontSize: '0.8125rem', fontWeight: 500, color: 'text.primary',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {option.name}
                     </Typography>
                     {option.description && (
-                      <Typography sx={{
-                        fontSize: '0.7rem', color: 'text.secondary',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-                      }}>
+                      <Typography sx={{ fontSize: '0.7rem', color: 'text.secondary',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {option.description}
                       </Typography>
                     )}
@@ -287,9 +299,12 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
           />
         </Box>
 
-        {/* RIGHT zone: user profile pill — fixed size, never shrinks or clips */}
+        {/* Spacer to ensure alignment of flex right area if absolutely positioned center is absent */}
+        <Box sx={{ flexGrow: 1, display: { xs: 'block', md: 'none' } }} />
+
+        {/* RIGHT zone: user profile pill */}
         <Stack direction="row" alignItems="center" spacing={1}
-          sx={{ flex: '1 1 0', justifyContent: 'flex-end', flexShrink: 0, minWidth: 0 }}>
+          sx={{ flexShrink: 0, minWidth: 0, zIndex: 1 }}>
           
           {onAIClick && (
             <Tooltip title="AI Assistant">
@@ -315,7 +330,7 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
             onClose={() => setAnchorEl(null)}
             anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
             transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-            PaperProps={{
+            slotProps={{
               sx: {
                 borderRadius: 1.5,
                 mt: 1,
@@ -342,8 +357,8 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
               py: 0.5,
               px: 1.5,
               borderRadius: 3,
-              flexShrink: 0,       // never compress the pill
-              maxWidth: 220,       // cap width so it doesn't grow too wide
+              flexShrink: 0,
+              maxWidth: 220,
               overflow: 'hidden',
             }}>
               <Avatar sx={{ bgcolor: '#2563EB', width: 28, height: 28, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>

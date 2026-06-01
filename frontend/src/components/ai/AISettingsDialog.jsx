@@ -3,7 +3,10 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, Box, Tabs, Tab, TextField,
   Button, Typography, Chip, MenuItem, Select, FormControl, InputLabel, Alert,
   CircularProgress, IconButton, InputAdornment, Stack, Divider, Switch, FormControlLabel,
+  Tooltip,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
+import HighlightOffOutlinedIcon from '@mui/icons-material/HighlightOffOutlined';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -148,12 +151,61 @@ export default function AISettingsDialog({ open, onClose, onSaved }) {
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ pb: 1 }}>
-        AI Provider Settings
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          Connect your own API key to OpenAI, Anthropic, or Google Gemini.
-        </Typography>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: 4,
+          boxShadow: '0 32px 64px rgba(0,0,0,0.14)',
+          overflow: 'hidden',
+          border: '1px solid',
+          borderColor: 'divider',
+        },
+      }}
+    >
+      <DialogTitle sx={{ p: 0 }}>
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            px: 3,
+            pt: 3,
+            pb: 2.5,
+            background: 'linear-gradient(135deg, rgba(30,64,175,0.05) 0%, rgba(99,102,241,0.04) 100%)',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <img src="/fyntrac9.png" alt="Fyntrac" style={{ width: 72, height: 'auto' }} />
+            <Box>
+              <Chip
+                label="AI"
+                size="small"
+                sx={{
+                  height: 18, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
+                  textTransform: 'uppercase', bgcolor: alpha('#3f51b5', 0.1),
+                  color: '#3f51b5', mb: 0.5, borderRadius: 1,
+                }}
+              />
+              <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2, color: 'text.primary' }}>
+                AI Provider Settings
+              </Typography>
+            </Box>
+          </Box>
+          <Tooltip title="Close" placement="left">
+            <IconButton
+              onClick={onClose}
+              size="small"
+              sx={{
+                color: 'text.secondary', bgcolor: 'action.hover', borderRadius: 2,
+                '&:hover': { bgcolor: 'error.50', color: 'error.main' },
+              }}
+            >
+              <HighlightOffOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
       </DialogTitle>
       <DialogContent dividers>
         <Box sx={{ mb: 2, p: 1.5, bgcolor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 1.5 }}>

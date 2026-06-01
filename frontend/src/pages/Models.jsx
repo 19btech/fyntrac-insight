@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Button, Grid, Card, CardContent, IconButton, CardActionArea,
-  Dialog, DialogTitle, DialogContent, DialogActions, Skeleton, Tooltip, Alert,
+  Dialog, DialogTitle, DialogContent, DialogActions, Skeleton, Tooltip, Alert, Snackbar,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -129,8 +129,13 @@ export default function ModelsPage() {
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [actionError, setActionError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [toast, setToast] = useState({ open: false, msg: '', ok: true });
+
+  const showToast = (msg, ok = true) => {
+    setToast({ open: true, msg, ok });
+    setTimeout(() => setToast((t) => ({ ...t, open: false })), 3000);
+  };
   const [starterOpen, setStarterOpen] = useState(false);
   const [pickQuestionOpen, setPickQuestionOpen] = useState(false);
   // Modal state — drives both viewing an existing dataset and creating a new one.
@@ -150,20 +155,23 @@ export default function ModelsPage() {
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     try {
+      const name = deleteTarget.name;
       await api.delete(`/models/${deleteTarget._id}`);
       setDeleteTarget(null);
       reload();
+      showToast(`"${name}" deleted successfully`);
     } catch (e) {
-      setActionError(e?.response?.data?.error || 'Failed to delete dataset');
       setDeleteTarget(null);
+      showToast(e?.response?.data?.error || 'Failed to delete dataset', false);
     }
   };
   const togglePin = async (m) => {
     try {
       await api.put(`/models/${m._id}`, { pinned: !m.pinned });
       reload();
+      showToast(m.pinned ? 'Dataset unpinned' : 'Dataset pinned');
     } catch (e) {
-      setActionError(e?.response?.data?.error || 'Failed to update dataset');
+      showToast(e?.response?.data?.error || 'Failed to update dataset', false);
     }
   };
   const editModel = (m) => { setPreviewNew(false); setPreviewStarter(null); setPreviewId(m._id); };
@@ -183,14 +191,11 @@ export default function ModelsPage() {
       {loadError && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setLoadError('')}>{loadError}</Alert>
       )}
-      {actionError && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError('')}>{actionError}</Alert>
-      )}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
         <Box>
           <Typography variant="h2">Datasets</Typography>
           <Typography variant="body2" color="text.secondary">
-            Reusable, "blessed" data sources your team can build questions on top of.
+            Reusable data sources your team can build reports on top of.
           </Typography>
         </Box>
         <Tooltip title="New Dataset">
@@ -260,6 +265,25 @@ export default function ModelsPage() {
           <Button onClick={confirmDelete} color="error" variant="contained">Delete</Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={toast.open}
+        onClose={() => setToast((t) => ({ ...t, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        autoHideDuration={3000}
+      >
+        <Alert
+          severity={toast.ok ? 'success' : 'error'}
+          variant="filled"
+          icon={false}
+          onClose={() => setToast((t) => ({ ...t, open: false }))}
+          sx={toast.ok
+            ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', '& .MuiAlert-action': { color: '#166534' } }
+            : { bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 600, border: '1px solid #fecaca', '& .MuiAlert-action': { color: '#991b1b' } }}
+        >
+          {toast.msg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

@@ -251,7 +251,7 @@ export default function AdminPage() {
                     layout="horizontal"
                     yAxis={[{ dataKey: '_id', scaleType: 'band', tickLabelStyle: { fontSize: 11, fill: SLATE_500 } }]}
                     xAxis={[{ tickLabelStyle: { fontSize: 11, fill: SLATE_500 } }]}
-                    series={[{ dataKey: 'count', label: 'Count', color: PURPLE }]}
+                    series={[{ dataKey: 'count', label: 'Count', color: '#c4b5fd' }]}
                     height={220}
                     margin={{ top: 8, right: 16, bottom: 32, left: 96 }}
                     grid={{ vertical: true }}
@@ -307,7 +307,7 @@ export default function AdminPage() {
                         dataset={rows}
                         xAxis={[{ scaleType: 'band', dataKey: 'action', tickLabelStyle: { fontSize: 10, fill: SLATE_500, angle: -30, textAnchor: 'end' } }]}
                         yAxis={[{ tickLabelStyle: { fontSize: 11, fill: SLATE_500 } }]}
-                        series={[{ dataKey: 'avgMs', color: GREEN, valueFormatter: (v) => `${v} ms` }]}
+                        series={[{ dataKey: 'avgMs', color: '#6ee7b7', valueFormatter: (v) => `${v} ms` }]}
                         margin={{ top: 8, right: 16, bottom: 56, left: 48 }}
                       />
                     );

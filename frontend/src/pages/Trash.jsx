@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Box, Typography, Button, Table, TableBody, TableCell, TableHead, TableRow,
   IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions,
-  Fade, Paper,
+  Fade, Paper, Snackbar, Alert,
 } from '@mui/material';
 import RestoreIcon from '@mui/icons-material/Restore';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
@@ -22,6 +22,13 @@ export default function TrashPage() {
   const [items, setItems] = useState([]);
   const [confirmEmpty, setConfirmEmpty] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [permaTarget, setPermaTarget] = useState(null);
+  const [toast, setToast] = useState({ open: false, msg: '', ok: true });
+
+  const showToast = (msg, ok = true) => {
+    setToast({ open: true, msg, ok });
+    setTimeout(() => setToast((t) => ({ ...t, open: false })), 3000);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -35,20 +42,38 @@ export default function TrashPage() {
   useEffect(() => { load(); setMounted(true); }, [load]);
 
   const restore = async (item) => {
-    await api.post(`/trash/${item._type}/${item._id}/restore`);
-    load();
+    try {
+      await api.post(`/trash/${item._type}/${item._id}/restore`);
+      load();
+      showToast(`"${item.name}" restored successfully`);
+    } catch (e) {
+      showToast(e.response?.data?.error || 'Restore failed', false);
+    }
   };
 
-  const permaDelete = async (item) => {
-    if (!window.confirm(`Permanently delete "${item.name}"? This cannot be undone.`)) return;
-    await api.delete(`/trash/${item._type}/${item._id}`);
-    load();
+  const permaDelete = async () => {
+    if (!permaTarget) return;
+    try {
+      await api.delete(`/trash/${permaTarget._type}/${permaTarget._id}`);
+      const name = permaTarget.name;
+      setPermaTarget(null);
+      load();
+      showToast(`"${name}" permanently deleted`);
+    } catch (e) {
+      setPermaTarget(null);
+      showToast(e.response?.data?.error || 'Delete failed', false);
+    }
   };
 
   const emptyTrash = async () => {
-    await api.post('/trash/empty');
-    setConfirmEmpty(false);
-    load();
+    try {
+      await api.post('/trash/empty');
+      setConfirmEmpty(false);
+      load();
+      showToast('Trash emptied successfully');
+    } catch (e) {
+      showToast(e.response?.data?.error || 'Failed to empty trash', false);
+    }
   };
 
   return (
@@ -133,7 +158,7 @@ export default function TrashPage() {
                           </IconButton>
                         </Tooltip>
                         <Tooltip title="Delete permanently">
-                          <IconButton size="small" onClick={() => permaDelete(item)} sx={{
+                          <IconButton size="small" onClick={() => setPermaTarget(item)} sx={{
                             color: '#dc2626', bgcolor: '#fef2f2', width: 28, height: 28,
                             '&:hover': { bgcolor: '#fee2e2' },
                           }}>
@@ -186,6 +211,49 @@ export default function TrashPage() {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Permanent delete confirm dialog */}
+        <Dialog open={!!permaTarget} onClose={() => setPermaTarget(null)} maxWidth="xs" PaperProps={{ sx: { borderRadius: 2 } }}>
+          <DialogTitle sx={{ fontWeight: 700, color: '#0f172a', pb: 1 }}>Permanently delete?</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary">
+              <strong>{permaTarget?.name}</strong> will be permanently deleted. This cannot be undone.
+            </Typography>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
+            <Button
+              onClick={() => setPermaTarget(null)}
+              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, boxShadow: 'none', color: '#475569', bgcolor: '#f8fafc', border: '1px solid #e2e8f0', '&:hover': { bgcolor: '#e2e8f0', boxShadow: 'none' } }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={permaDelete}
+              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700, boxShadow: 'none', bgcolor: '#dc2626', color: '#fff', '&:hover': { bgcolor: '#b91c1c', boxShadow: 'none' } }}
+            >
+              Delete permanently
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Snackbar
+          open={toast.open}
+          onClose={() => setToast((t) => ({ ...t, open: false }))}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+          autoHideDuration={3000}
+        >
+          <Alert
+            severity={toast.ok ? 'success' : 'error'}
+            variant="filled"
+            icon={false}
+            onClose={() => setToast((t) => ({ ...t, open: false }))}
+            sx={toast.ok
+              ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', '& .MuiAlert-action': { color: '#166534' } }
+              : { bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 600, border: '1px solid #fecaca', '& .MuiAlert-action': { color: '#991b1b' } }}
+          >
+            {toast.msg}
+          </Alert>
+        </Snackbar>
       </Box>
     </Fade>
   );

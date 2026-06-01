@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   Dialog, DialogContent, DialogTitle, DialogActions, DialogContentText,
-  AppBar, Toolbar, IconButton, Typography, Stack, Chip,
+  IconButton, Typography, Stack, Chip,
   Tabs, Tab, Box, Button, Divider, Skeleton,
   TextField, List, ListItem, ListItemText, CircularProgress, Tooltip,
   Snackbar, Alert,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
+import HighlightOffOutlinedIcon from '@mui/icons-material/HighlightOffOutlined';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -67,6 +69,7 @@ export default function ReportPreviewDialog({ open, reportId, isNew = false, onC
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState('');
   const [queryDoneMsg, setQueryDoneMsg] = useState('');
+  const [restoredMsg, setRestoredMsg] = useState('');
   // Internal id used for save/version/restore. For an unsaved "new" report
   // this is null until the first save creates the record.
   const [activeId, setActiveId] = useState(null);
@@ -228,7 +231,7 @@ export default function ReportPreviewDialog({ open, reportId, isNew = false, onC
       baselineRef.current = snapshot({ name, description, chartConfig, collection, pipelineJson, builderState });
       setDirty(false);
       setMetaEditing(false);
-      setSavedMsg('Saved');
+      setSavedMsg('Report saved successfully');
       setTimeout(() => setSavedMsg(''), 2500);
       onSaved?.(data);
     } catch (e) {
@@ -324,42 +327,72 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
     <Dialog
       open={open} onClose={handleClose} fullWidth
       maxWidth={false}
-      PaperProps={{ sx: { width: '96vw', height: '95vh', maxWidth: 'none', borderRadius: 2 } }}
+      PaperProps={{
+        sx: {
+          width: '96vw', height: '95vh', maxWidth: 'none', borderRadius: 4,
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          boxShadow: '0 32px 64px rgba(0,0,0,0.14)',
+          border: '1px solid',
+          borderColor: 'divider',
+        },
+      }}
     >
-      <AppBar position="static" color="inherit" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', pt: 2 }}>
-        <Toolbar variant="dense" sx={{ gap: 1.5, alignItems: 'center', minHeight: 64, px: 3 }}>
-          <Stack direction="column" sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="subtitle1" fontWeight={700} noWrap>
-              {name || (isNew ? 'New report' : (activeId ? 'Loading…' : ''))}
-            </Typography>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, flexWrap: 'wrap' }}>
+      {/* ── Branded header ── */}
+      <Box
+        sx={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          px: 3, pt: 3, pb: 2.5, flexShrink: 0,
+          background: 'linear-gradient(135deg, rgba(30,64,175,0.05) 0%, rgba(99,102,241,0.04) 100%)',
+          borderBottom: '1px solid', borderColor: 'divider',
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <img src="/fyntrac9.png" alt="Fyntrac" style={{ width: 72, height: 'auto' }} />
+          <Box>
+            <Chip
+              label="Report"
+              size="small"
+              sx={{
+                height: 18, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
+                textTransform: 'uppercase', bgcolor: alpha('#3f51b5', 0.1),
+                color: '#3f51b5', mb: 0.5, borderRadius: 1,
+              }}
+            />
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2, color: 'text.primary' }} noWrap>
+                {name || (isNew ? 'New Report' : (activeId ? 'Loading…' : ''))}
+              </Typography>
               {sourceChip}
               {report?.verified && (
-                <Chip icon={<VerifiedIcon sx={{ fontSize: 14 }} />} label="Verified" size="small" color="success" variant="outlined" />
-              )}
-              {results && (
-                <Chip
-                  size="small" variant="outlined"
-                  label={`${results.data?.length || 0} rows · ${results.executionTime ?? '—'}ms`}
-                />
+                <Chip icon={<VerifiedIcon sx={{ fontSize: 14 }} />} label="Verified" size="small" color="success" variant="outlined" sx={{ height: 18, fontSize: '0.65rem', borderRadius: 1 }} />
               )}
               {dirty && (
-                <Chip size="small" color="warning" variant="outlined" label="Unsaved changes" />
+                <Chip size="small" color="warning" variant="outlined" label="Unsaved changes" sx={{ height: 18, fontSize: '0.65rem', borderRadius: 1 }} />
               )}
             </Stack>
-          </Stack>
-          <IconButton size="small" onClick={handleClose}><CloseIcon /></IconButton>
-        </Toolbar>
-        <Tabs
-          value={tab} onChange={(_, v) => setTab(v)}
-          variant="scrollable" allowScrollButtonsMobile
-          sx={{ px: 3, minHeight: 44, '& .MuiTab-root': { fontWeight: 500 }, '& .MuiTab-root.Mui-selected': { color: '#1e40af', fontWeight: 700 }, '& .MuiTabs-indicator': { bgcolor: '#3b82f6' } }}
-        >
-          {TABS.map((t) => (
-            <Tab key={t.key} value={t.key} label={t.label} sx={{ minHeight: 44, py: 0.5, textTransform: 'none' }} />
-          ))}
-        </Tabs>
-      </AppBar>
+          </Box>
+        </Box>
+        <Tooltip title="Close" placement="left">
+          <IconButton
+            onClick={handleClose}
+            size="small"
+            sx={{ color: 'text.secondary', bgcolor: 'action.hover', borderRadius: 2, '&:hover': { bgcolor: 'error.50', color: 'error.main' } }}
+          >
+            <HighlightOffOutlinedIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+      {/* ── Tabs ── */}
+      <Tabs
+        value={tab} onChange={(_, v) => setTab(v)}
+        variant="scrollable" allowScrollButtonsMobile
+        sx={{ px: 3, minHeight: 44, flexShrink: 0, borderBottom: '1px solid #e2e8f0', bgcolor: '#fff', '& .MuiTab-root': { fontWeight: 500 }, '& .MuiTab-root.Mui-selected': { color: '#1e40af', fontWeight: 700 }, '& .MuiTabs-indicator': { bgcolor: '#3b82f6' } }}
+      >
+        {TABS.map((t) => (
+          <Tab key={t.key} value={t.key} label={t.label} sx={{ minHeight: 44, py: 0.5, textTransform: 'none' }} />
+        ))}
+      </Tabs>
 
       <DialogContent sx={{ p: 0, display: 'flex', overflow: 'hidden' }}>
         {/* Left rail */}
@@ -452,7 +485,7 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
                 '&.Mui-disabled': { bgcolor: '#f0fdf4', borderColor: '#bbf7d0', color: '#15803d' },
               }}
             >
-              {running ? 'Running…' : 'Re-run query'}
+              {running ? 'Running…' : 'Run Preview'}
             </Button>
             <Button
               size="small" variant="contained" fullWidth
@@ -614,6 +647,8 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
                                 runQueryWith(data.queryConfig?.collection, data.queryConfig?.pipeline || []);
                                 setDirty(false);
                                 setTab('preview');
+                                setRestoredMsg(`Restored to version from ${v.snapshottedAt ? new Date(v.snapshottedAt).toLocaleString() : 'previous version'}`);
+                                setTimeout(() => setRestoredMsg(''), 3000);
                               } catch (e) {
                                 setError(e.response?.data?.error || e.message);
                               }
@@ -677,12 +712,12 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
           icon={false}
           onClose={() => setSavedMsg('')}
           sx={{
-            bgcolor: '#d1fae5',
-            color: '#065f46',
+            bgcolor: '#dcfce7',
+            color: '#166534',
             fontWeight: 600,
-            border: '1px solid #a7f3d0',
-            boxShadow: '0 6px 16px rgba(16,185,129,0.18)',
-            '& .MuiAlert-action': { color: '#065f46' },
+            border: '1px solid #bbf7d0',
+            boxShadow: '0 6px 16px rgba(22,163,74,0.15)',
+            '& .MuiAlert-action': { color: '#166534' },
           }}
         >
           {savedMsg}
@@ -699,18 +734,43 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
         <Alert
           severity="success"
           variant="filled"
-          icon={<CheckCircleOutlineIcon fontSize="inherit" />}
+          icon={false}
           onClose={() => setQueryDoneMsg('')}
           sx={{
-            bgcolor: '#bbf7d0',
-            color: '#14532d',
+            bgcolor: '#dcfce7',
+            color: '#166534',
             fontWeight: 600,
-            border: '1px solid #86efac',
-            boxShadow: '0 6px 16px rgba(16,185,129,0.18)',
-            '& .MuiAlert-action': { color: '#14532d' },
+            border: '1px solid #bbf7d0',
+            boxShadow: '0 6px 16px rgba(22,163,74,0.15)',
+            '& .MuiAlert-action': { color: '#166534' },
           }}
         >
           {queryDoneMsg}
+        </Alert>
+      </Snackbar>
+
+      <Snackbar
+        open={!!restoredMsg}
+        autoHideDuration={3000}
+        onClose={() => setRestoredMsg('')}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        sx={{ mt: 8, zIndex: (theme) => theme.zIndex.modal + 20 }}
+      >
+        <Alert
+          severity="success"
+          variant="filled"
+          icon={false}
+          onClose={() => setRestoredMsg('')}
+          sx={{
+            bgcolor: '#dcfce7',
+            color: '#166534',
+            fontWeight: 600,
+            border: '1px solid #bbf7d0',
+            boxShadow: '0 6px 16px rgba(22,163,74,0.15)',
+            '& .MuiAlert-action': { color: '#166534' },
+          }}
+        >
+          {restoredMsg}
         </Alert>
       </Snackbar>
     </Dialog>

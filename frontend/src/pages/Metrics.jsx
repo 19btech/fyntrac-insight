@@ -4,7 +4,7 @@ import {
   Box, Typography, Button, Grid, Card, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Autocomplete,
   MenuItem, FormControl, InputLabel, Select, Chip, Skeleton, Stack, Divider, Switch,
-  Tooltip, Alert, LinearProgress,
+  Tooltip, Alert, LinearProgress, Snackbar,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -18,8 +18,10 @@ import PaletteIcon from '@mui/icons-material/Palette';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import CloseIcon from '@mui/icons-material/Close';
+import HighlightOffOutlinedIcon from '@mui/icons-material/HighlightOffOutlined';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CircularProgress from '@mui/material/CircularProgress';
+import { alpha } from '@mui/material/styles';
 import api from '../hooks/useQuery';
 import KpiTile from '../components/shared/KpiTile';
 import formatKpi from '../components/shared/formatKpi';
@@ -440,33 +442,40 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
       fullWidth
       PaperProps={{
         sx: {
-          borderRadius: 3,
+          borderRadius: 4,
           overflow: 'hidden',
           height: '90vh',
           maxHeight: 820,
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '0 24px 64px rgba(15,23,42,0.18)',
+          boxShadow: '0 32px 64px rgba(0,0,0,0.14)',
+          border: '1px solid',
+          borderColor: 'divider',
         },
       }}
     >
-      {/* ── Header bar ───────────────────────────────────────────── */}
+      {/* ── Branded header ────────────────────────────────────────── */}
       <Box sx={{
-        bgcolor: 'background.paper',
-        borderBottom: '1px solid',
-        borderColor: 'divider',
-        px: 3, py: 2,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        px: 3, pt: 3, pb: 2.5,
+        background: 'linear-gradient(135deg, rgba(30,64,175,0.05) 0%, rgba(99,102,241,0.04) 100%)',
+        borderBottom: '1px solid', borderColor: 'divider',
         flexShrink: 0,
       }}>
-        <Stack direction="row" alignItems="center" spacing={1.5}>
-          <SpeedIcon sx={{ fontSize: 22, color: 'text.secondary' }} />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <img src="/fyntrac9.png" alt="Fyntrac" style={{ width: 72, height: 'auto' }} />
           <Box>
-            <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>
+            <Chip
+              label="KPI"
+              size="small"
+              sx={{
+                height: 18, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
+                textTransform: 'uppercase', bgcolor: alpha('#3f51b5', 0.1),
+                color: '#3f51b5', mb: 0.5, borderRadius: 1,
+              }}
+            />
+            <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2, color: 'text.primary' }}>
               {name?.trim() || (initial._id ? 'Edit KPI' : 'New KPI')}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1 }}>
-              {initial._id ? 'Update metric definition' : 'Configure a new key performance indicator'}
             </Typography>
           </Box>
           {verified && (
@@ -477,18 +486,23 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
               sx={{ bgcolor: '#dcfce7', color: '#166534', fontWeight: 700, height: 22, fontSize: '0.68rem', border: 'none' }}
             />
           )}
-        </Stack>
-        <Stack direction="row" spacing={1} alignItems="center">
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Button
             size="small" variant="contained" onClick={handleSave}
             sx={{ fontWeight: 700, px: 2.5, borderRadius: 2 }}
           >
             Save KPI
           </Button>
-          <IconButton size="small" onClick={onClose}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        </Stack>
+          <Tooltip title="Close" placement="left">
+            <IconButton
+              onClick={onClose} size="small"
+              sx={{ color: 'text.secondary', bgcolor: 'action.hover', borderRadius: 2, '&:hover': { bgcolor: 'error.50', color: 'error.main' } }}
+            >
+              <HighlightOffOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
 
       {/* ── Step tabs ─────────────────────────────────────────────── */}
@@ -1183,6 +1197,12 @@ export default function MetricsPage() {
   const [editing, setEditing] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const [toast, setToast] = useState({ open: false, msg: '', ok: true });
+
+  const showToast = (msg, ok = true) => {
+    setToast({ open: true, msg, ok });
+    setTimeout(() => setToast((t) => ({ ...t, open: false })), 3000);
+  };
 
   // AI co-pilot handoff
   useEffect(() => {
@@ -1234,17 +1254,25 @@ export default function MetricsPage() {
 
   const handleSave = async (data) => {
     const payload = editing?.draftedByAI ? { ...data, draftedByAI: true } : data;
+    const isNew = !(editing && editing._id);
     if (editing && editing._id) await api.put(`/metrics/${editing._id}`, payload);
     else await api.post('/metrics', payload);
     reload();
+    showToast(isNew ? 'KPI created successfully' : 'KPI updated successfully');
   };
 
   const handleDelete = (m) => setDeleteTarget(m);
 
   const confirmDelete = async () => {
-    await api.delete(`/metrics/${deleteTarget._id}`);
-    setDeleteTarget(null);
-    reload();
+    try {
+      const name = deleteTarget?.name || '';
+      await api.delete(`/metrics/${deleteTarget._id}`);
+      setDeleteTarget(null);
+      reload();
+      showToast(`"${name}" deleted successfully`);
+    } catch (e) {
+      showToast(e.response?.data?.error || 'Delete failed', false);
+    }
   };
 
   return (
@@ -1312,6 +1340,25 @@ export default function MetricsPage() {
           <Button onClick={confirmDelete} variant="contained" color="error">Delete</Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={toast.open}
+        onClose={() => setToast((t) => ({ ...t, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        autoHideDuration={3000}
+      >
+        <Alert
+          severity={toast.ok ? 'success' : 'error'}
+          variant="filled"
+          icon={false}
+          onClose={() => setToast((t) => ({ ...t, open: false }))}
+          sx={toast.ok
+            ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', '& .MuiAlert-action': { color: '#166534' } }
+            : { bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 600, border: '1px solid #fecaca', '& .MuiAlert-action': { color: '#991b1b' } }}
+        >
+          {toast.msg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

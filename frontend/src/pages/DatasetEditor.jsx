@@ -354,17 +354,17 @@ export default function DatasetEditor() {
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert
-          severity="info"
+          severity="success"
           variant="filled"
           icon={false}
           onClose={() => setPreviewMsg('')}
           sx={{
-            bgcolor: '#eff6ff',
-            color: '#1e40af',
+            bgcolor: '#dcfce7',
+            color: '#166534',
             fontWeight: 600,
-            border: '1px solid #bfdbfe',
-            boxShadow: '0 6px 16px rgba(59,130,246,0.18)',
-            '& .MuiAlert-action': { color: '#1e40af' },
+            border: '1px solid #bbf7d0',
+            boxShadow: '0 6px 16px rgba(22,163,74,0.15)',
+            '& .MuiAlert-action': { color: '#166534' },
           }}
         >
           {previewMsg}

@@ -26,7 +26,6 @@ const MAIN_NAV = [
 const BOTTOM_NAV = [
   { label: 'Trash',           icon: <DeleteOutlineIcon fontSize="small" />, path: '/trash' },
   { label: 'Usage Analytics', icon: <BarChartIcon fontSize="small" />,      path: '/admin' },
-  { label: 'Settings',        icon: <SettingsIcon fontSize="small" />,      path: '/settings' },
 ];
 
 // Token values from theme.ts
@@ -39,7 +38,7 @@ const SLATE_700    = '#334155'; // tokens.brand.slate700    = SIDEBAR_TEXT
 const INDIGO       = '#6366f1'; // tokens.brand.indigo      = SIDEBAR_ACCENT
 const BLACK        = '#14213d'; // tokens.brand.black
 
-export default function Sidebar({ open, width, onToggle }) {
+export default function Sidebar({ open, width, onToggle, onSettingsClick }) {
   const navigate = useNavigate();
   const { pathname, search } = useLocation();
 
@@ -193,8 +192,59 @@ export default function Sidebar({ open, width, onToggle }) {
       <Divider sx={{ borderColor: SLATE_200 }} />
 
       {/* ── Bottom nav ── */}
-      <List sx={{ px: 1.5, pb: 1, pt: 0.5 }}>
+      <List sx={{ px: 1.5, pb: 0, pt: 0.5 }}>
         {BOTTOM_NAV.map((item) => <NavItem key={item.label} {...item} />)}
+      </List>
+
+      {/* ── Settings ── */}
+      <List sx={{ px: 1.5, pb: 1, pt: 0 }}>
+        {open ? (
+          <ListItemButton
+            onClick={onSettingsClick}
+            sx={{
+              borderRadius: '12px',
+              mb: 0.25,
+              px: 1.75,
+              py: 1,
+              color: SLATE_700,
+              bgcolor: 'transparent',
+              '&:hover': { bgcolor: SLATE_100, color: BLACK },
+              transition: 'background-color 160ms, color 160ms',
+              justifyContent: 'flex-start',
+            }}
+          >
+            <ListItemIcon sx={{ color: SLATE_500, minWidth: 32, justifyContent: 'center' }}>
+              <SettingsIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText
+              primary="AI Settings"
+              primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 500, fontStyle: 'normal', color: 'inherit' }}
+            />
+          </ListItemButton>
+        ) : (
+          <Tooltip title="AI Settings" placement="right">
+            <span>
+              <ListItemButton
+                onClick={onSettingsClick}
+                sx={{
+                  borderRadius: '12px',
+                  mb: 0.25,
+                  px: 1.25,
+                  py: 1,
+                  color: SLATE_700,
+                  bgcolor: 'transparent',
+                  '&:hover': { bgcolor: SLATE_100, color: BLACK },
+                  transition: 'background-color 160ms, color 160ms',
+                  justifyContent: 'center',
+                }}
+              >
+                <ListItemIcon sx={{ color: SLATE_500, minWidth: 'auto', justifyContent: 'center' }}>
+                  <SettingsIcon fontSize="small" />
+                </ListItemIcon>
+              </ListItemButton>
+            </span>
+          </Tooltip>
+        )}
       </List>
 
     </Box>

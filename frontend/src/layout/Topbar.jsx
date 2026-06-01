@@ -22,12 +22,12 @@ import api from '../hooks/useQuery';
 const OBJECT_ID_RX = /^[a-f0-9]{24}$/i;
 
 const SEARCH_TYPES = {
-  dashboard:  { label: 'Dashboard',    icon: <DashboardIcon fontSize="small" /> },
-  question:   { label: 'Report',       icon: <QuestionAnswerIcon fontSize="small" /> },
-  collection: { label: 'Collection',   icon: <FolderIcon fontSize="small" /> },
-  model:      { label: 'Dataset',      icon: <ScienceIcon fontSize="small" /> },
-  metric:     { label: 'KPI',          icon: <SpeedIcon fontSize="small" /> },
-  recon:      { label: 'Reconciliation', icon: <BalanceIcon fontSize="small" /> },
+  dashboard: { label: 'Dashboard', icon: <DashboardIcon fontSize="small" /> },
+  question: { label: 'Report', icon: <QuestionAnswerIcon fontSize="small" /> },
+  collection: { label: 'Collection', icon: <FolderIcon fontSize="small" /> },
+  model: { label: 'Dataset', icon: <ScienceIcon fontSize="small" /> },
+  metric: { label: 'KPI', icon: <SpeedIcon fontSize="small" /> },
+  recon: { label: 'Reconciliation', icon: <BalanceIcon fontSize="small" /> },
 };
 
 function useBreadcrumbs(pageTitle) {
@@ -199,8 +199,10 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
           >
             Workspace
           </Typography>
-          <Breadcrumbs separator="/" sx={{ fontSize: '0.8125rem', color: 'text.secondary',
-            '& .MuiBreadcrumbs-separator': { mx: 0.75 } }}>
+          <Breadcrumbs separator="/" sx={{
+            fontSize: '0.8125rem', color: 'text.secondary',
+            '& .MuiBreadcrumbs-separator': { mx: 0.75 }
+          }}>
             {crumbs.map((c, i) =>
               i === crumbs.length - 1 ? (
                 <Typography key={c.path} sx={{ fontSize: '1rem', color: 'text.primary', fontWeight: 700, whiteSpace: 'nowrap', lineHeight: 1.2 }}>
@@ -245,13 +247,17 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
                 <Box component="li" {...props} key={`${option._type}-${option._id}`} sx={{ gap: 1.25, py: 0.75 }}>
                   <Box sx={{ color: 'primary.main', display: 'flex' }}>{meta.icon}</Box>
                   <Stack sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography sx={{ fontSize: '0.8125rem', fontWeight: 500, color: 'text.primary',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <Typography sx={{
+                      fontSize: '0.8125rem', fontWeight: 500, color: 'text.primary',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                    }}>
                       {option.name}
                     </Typography>
                     {option.description && (
-                      <Typography sx={{ fontSize: '0.7rem', color: 'text.secondary',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <Typography sx={{
+                        fontSize: '0.7rem', color: 'text.secondary',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                      }}>
                         {option.description}
                       </Typography>
                     )}
@@ -305,7 +311,7 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
         {/* RIGHT zone: user profile pill */}
         <Stack direction="row" alignItems="center" spacing={1}
           sx={{ flexShrink: 0, minWidth: 0, zIndex: 1 }}>
-          
+
           {onAIClick && (
             <Tooltip title="AI Assistant">
               <IconButton onClick={onAIClick} size="small" sx={{ color: 'primary.main' }}>
@@ -314,15 +320,6 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
             </Tooltip>
           )}
 
-          <Tooltip title="Settings">
-            <IconButton
-              size="small"
-              onClick={(e) => setAnchorEl(e.currentTarget)}
-              sx={{ color: 'text.secondary' }}
-            >
-              <SettingsIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
 
           <Menu
             anchorEl={anchorEl}

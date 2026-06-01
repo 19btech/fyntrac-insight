@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Grid, Card, IconButton, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, Skeleton, Stack,
+  Snackbar, Alert,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -17,6 +18,12 @@ export default function DashboardsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [toast, setToast] = useState({ open: false, msg: '', ok: true });
+
+  const showToast = (msg, ok = true) => {
+    setToast({ open: true, msg, ok });
+    setTimeout(() => setToast((t) => ({ ...t, open: false })), 3000);
+  };
 
   const reload = () => {
     setLoading(true);
@@ -32,12 +39,15 @@ export default function DashboardsPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
+      const name = deleteTarget.name;
       await api.delete(`/dashboards/${deleteTarget._id}`);
       setDeleteTarget(null);
       setDeleteError('');
       reload();
+      showToast(`"${name}" moved to Trash`);
     } catch (e) {
       setDeleteError(e.response?.data?.error || e.message || 'Delete failed');
+      showToast(e.response?.data?.error || 'Delete failed', false);
     } finally {
       setDeleting(false);
     }
@@ -117,6 +127,25 @@ export default function DashboardsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={toast.open}
+        onClose={() => setToast((t) => ({ ...t, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        autoHideDuration={3000}
+      >
+        <Alert
+          severity={toast.ok ? 'success' : 'error'}
+          variant="filled"
+          icon={false}
+          onClose={() => setToast((t) => ({ ...t, open: false }))}
+          sx={toast.ok
+            ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', '& .MuiAlert-action': { color: '#166534' } }
+            : { bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 600, border: '1px solid #fecaca', '& .MuiAlert-action': { color: '#991b1b' } }}
+        >
+          {toast.msg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

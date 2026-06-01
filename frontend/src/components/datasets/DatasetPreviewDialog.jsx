@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Dialog, DialogContent, DialogTitle, DialogActions, DialogContentText,
-  AppBar, Toolbar, IconButton, Typography, Stack, Chip,
+  IconButton, Typography, Stack, Chip,
   Tabs, Tab, Box, Button, Divider, Skeleton, Switch, FormControlLabel,
   TextField, FormControl, InputLabel, Select, MenuItem, List, ListItem,
   ListItemText, CircularProgress, Tooltip, Snackbar, Alert, Paper,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
+import HighlightOffOutlinedIcon from '@mui/icons-material/HighlightOffOutlined';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -201,7 +203,7 @@ export default function DatasetPreviewDialog({
       });
       setPreviewData(data);
       setStepCounts(data.stepCounts || []);
-      if (showToast) setSavedMsg(`Preview ready \u2014 ${data.data?.length || 0} rows · ${data.executionTime ?? 0}ms`);
+      if (showToast) setSavedMsg(`Preview ready — ${data.data?.length || 0} rows · ${data.executionTime ?? 0}ms`);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
     } finally {
@@ -226,7 +228,7 @@ export default function DatasetPreviewDialog({
       baselineRef.current = snapshot({ name, description, sourceCollection, steps, columnOrder, verified });
       setDirty(false);
       setMetaEditing(false);
-      setSavedMsg('Saved');
+      setSavedMsg('Dataset saved successfully');
       setTimeout(() => setSavedMsg(''), 2500);
       onSaved?.(data);
     } catch (e) {
@@ -271,7 +273,7 @@ What would you like to know?`,
     if (snap.verified !== undefined) setVerified(!!snap.verified);
     setRestoreTarget(null);
     setTab('build');
-    setSavedMsg(`Restored to v${v.version ?? '?'} — review and Save when ready`);
+    setSavedMsg(`Restored to version ${v.version ?? '?'} — review and save when ready`);
   };
 
   // Step helpers
@@ -330,61 +332,82 @@ What would you like to know?`,
       maxWidth={false}
       PaperProps={{
         sx: {
-          width: '96vw', height: '95vh', m: 0, borderRadius: 2, maxWidth: 'none',
+          width: '96vw', height: '95vh', m: 0, borderRadius: 4, maxWidth: 'none',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          boxShadow: '0 32px 64px rgba(0,0,0,0.14)',
+          border: '1px solid',
+          borderColor: 'divider',
         },
       }}
     >
-      <AppBar position="static" elevation={0} color="inherit" sx={{ borderBottom: 1, borderColor: 'divider', pt: 2 }}>
-        <Toolbar variant="dense" sx={{ gap: 1.5, alignItems: 'center', minHeight: 64, px: 3 }}>
-          <Stack direction="column" sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="subtitle1" fontWeight={700} noWrap>
-              {name || (isNew ? 'New dataset' : (activeId ? 'Loading…' : ''))}
-            </Typography>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, flexWrap: 'wrap' }}>
+      {/* ── Branded header ── */}
+      <Box
+        sx={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          px: 3, pt: 3, pb: 2.5, flexShrink: 0,
+          background: 'linear-gradient(135deg, rgba(30,64,175,0.05) 0%, rgba(99,102,241,0.04) 100%)',
+          borderBottom: '1px solid', borderColor: 'divider',
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <img src="/fyntrac9.png" alt="Fyntrac" style={{ width: 72, height: 'auto' }} />
+          <Box>
+            <Chip
+              label="Dataset"
+              size="small"
+              sx={{
+                height: 18, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
+                textTransform: 'uppercase', bgcolor: alpha('#3f51b5', 0.1),
+                color: '#3f51b5', mb: 0.5, borderRadius: 1,
+              }}
+            />
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2, color: 'text.primary' }} noWrap>
+                {name || (isNew ? 'New Dataset' : (activeId ? 'Loading…' : ''))}
+              </Typography>
               {sourceCollection && (
-                <Chip
-                  icon={<StorageIcon sx={{ fontSize: 14 }} />}
-                  label={sourceCollection}
-                  size="small" variant="outlined"
-                />
+                <Chip icon={<StorageIcon sx={{ fontSize: 14 }} />} label={sourceCollection} size="small" variant="outlined" sx={{ height: 18, fontSize: '0.65rem', borderRadius: 1 }} />
               )}
               {verified && (
-                <Chip icon={<VerifiedIcon sx={{ fontSize: 14 }} />} label="Certified" size="small" color="success" variant="outlined" />
-              )}
-              {previewData && (
-                <Chip
-                  size="small" variant="outlined"
-                  label={`${previewData.data?.length || 0} rows · ${previewData.executionTime ?? '—'}ms`}
-                />
+                <Chip icon={<VerifiedIcon sx={{ fontSize: 14 }} />} label="Certified" size="small" color="success" variant="outlined" sx={{ height: 18, fontSize: '0.65rem', borderRadius: 1 }} />
               )}
               {dirty && (
-                <Chip size="small" color="warning" variant="outlined" label="Unsaved changes" />
+                <Chip size="small" color="warning" variant="outlined" label="Unsaved changes" sx={{ height: 18, fontSize: '0.65rem', borderRadius: 1 }} />
               )}
             </Stack>
-          </Stack>
-          <IconButton size="small" onClick={handleClose}><CloseIcon /></IconButton>
-        </Toolbar>
-        <Tabs
-          value={tab}
-          onChange={(_, v) => setTab(v)}
-          variant="scrollable" allowScrollButtonsMobile
-          sx={{ px: 3, minHeight: 44, '& .MuiTab-root': { fontWeight: 500 }, '& .MuiTab-root.Mui-selected': { color: '#1e40af', fontWeight: 700 }, '& .MuiTabs-indicator': { bgcolor: '#3b82f6' } }}
-        >
-          {TABS.map((t) => (
-            <Tab
-              key={t.key}
-              value={t.key}
-              sx={{ minHeight: 44, py: 0.5, textTransform: 'none' }}
-              label={
-                t.key === 'lineage' && lineageCount > 0
-                  ? <Stack direction="row" spacing={0.75} alignItems="center"><span>{t.label}</span><Chip size="small" label={lineageCount} sx={{ height: 18, fontSize: '0.65rem' }} /></Stack>
-                  : t.label
-              }
-            />
-          ))}
-        </Tabs>
-      </AppBar>
+          </Box>
+        </Box>
+        <Tooltip title="Close" placement="left">
+          <IconButton
+            onClick={handleClose}
+            size="small"
+            sx={{ color: 'text.secondary', bgcolor: 'action.hover', borderRadius: 2, '&:hover': { bgcolor: 'error.50', color: 'error.main' } }}
+          >
+            <HighlightOffOutlinedIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+      {/* ── Tabs ── */}
+      <Tabs
+        value={tab}
+        onChange={(_, v) => setTab(v)}
+        variant="scrollable" allowScrollButtonsMobile
+        sx={{ px: 3, minHeight: 44, flexShrink: 0, borderBottom: '1px solid #e2e8f0', bgcolor: '#fff', '& .MuiTab-root': { fontWeight: 500 }, '& .MuiTab-root.Mui-selected': { color: '#1e40af', fontWeight: 700 }, '& .MuiTabs-indicator': { bgcolor: '#3b82f6' } }}
+      >
+        {TABS.map((t) => (
+          <Tab
+            key={t.key}
+            value={t.key}
+            sx={{ minHeight: 44, py: 0.5, textTransform: 'none' }}
+            label={
+              t.key === 'lineage' && lineageCount > 0
+                ? <Stack direction="row" spacing={0.75} alignItems="center"><span>{t.label}</span><Chip size="small" label={lineageCount} sx={{ height: 18, fontSize: '0.65rem' }} /></Stack>
+                : t.label
+            }
+          />
+        ))}
+      </Tabs>
 
       <DialogContent sx={{ p: 0, display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Left rail */}
@@ -788,7 +811,7 @@ What would you like to know?`,
                       onClick={() => {
                         const text = JSON.stringify(compiledPipeline, null, 2);
                         if (navigator.clipboard?.writeText) {
-                          navigator.clipboard.writeText(text).then(() => setSavedMsg('Pipeline copied'));
+                          navigator.clipboard.writeText(text).then(() => setSavedMsg('Pipeline JSON copied to clipboard'));
                         }
                       }}
                       disabled={!compiledPipeline?.length}
@@ -958,12 +981,12 @@ What would you like to know?`,
           icon={false}
           onClose={() => setSavedMsg('')}
           sx={{
-            bgcolor: '#d1fae5',
-            color: '#065f46',
+            bgcolor: '#dcfce7',
+            color: '#166534',
             fontWeight: 600,
-            border: '1px solid #a7f3d0',
-            boxShadow: '0 6px 16px rgba(16,185,129,0.18)',
-            '& .MuiAlert-action': { color: '#065f46' },
+            border: '1px solid #bbf7d0',
+            boxShadow: '0 6px 16px rgba(22,163,74,0.15)',
+            '& .MuiAlert-action': { color: '#166534' },
           }}
         >
           {savedMsg}

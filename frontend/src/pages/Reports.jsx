@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Box, Typography, Grid, Card, IconButton, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, Skeleton, Stack,
+  Snackbar, Alert,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -19,6 +20,7 @@ export default function ReportsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   const reload = () => {
     setLoading(true);
@@ -44,9 +46,12 @@ export default function ReportsPage() {
     setDeleting(true);
     try {
       await api.delete(`/questions/${deleteTarget._id}`);
+      const name = deleteTarget.name;
       setDeleteTarget(null);
       setDeleteError('');
       reload();
+      setSuccessMsg(`"${name}" moved to Trash`);
+      setTimeout(() => setSuccessMsg(''), 3000);
     } catch (e) {
       setDeleteError(e.response?.data?.error || e.message || 'Delete failed');
     } finally {
@@ -147,6 +152,18 @@ export default function ReportsPage() {
         onClose={() => { setPreviewId(null); setPreviewNew(false); }}
         onSaved={() => { reload(); setPreviewNew(false); }}
       />
+
+      <Snackbar
+        open={!!successMsg}
+        autoHideDuration={3000}
+        onClose={() => setSuccessMsg('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" variant="filled" icon={false} onClose={() => setSuccessMsg('')}
+          sx={{ bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', '& .MuiAlert-action': { color: '#166534' } }}>
+          {successMsg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

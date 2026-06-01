@@ -8,10 +8,11 @@ import SearchModal from '../components/shared/SearchModal';
 import ReportPreviewDialog from '../components/reports/ReportPreviewDialog';
 import DatasetPreviewDialog from '../components/datasets/DatasetPreviewDialog';
 import ReconPreviewDialog from '../components/recon/ReconPreviewDialog';
+import Settings from '../pages/Settings';
 
-const SIDEBAR_EXPANDED = 240;
-const SIDEBAR_COLLAPSED = 56;
-const TOPBAR_HEIGHT = 56;
+const SIDEBAR_EXPANDED = 252;
+const SIDEBAR_COLLAPSED = 72;
+const TOPBAR_HEIGHT = 64;
 
 export default function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -19,6 +20,7 @@ export default function AppShell() {
   const [aiSeedPrompt, setAiSeedPrompt] = useState('');
   const [aiSeedKey, setAiSeedKey] = useState(0); // increments on every follow-up click
   const [searchOpen, setSearchOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [reportModal, setReportModal] = useState(null); // { id, isNew } | null
   const [datasetModal, setDatasetModal] = useState(null); // { id, isNew } | null
   const [reconModal, setReconModal] = useState(null); // { id, isNew } | null
@@ -89,7 +91,7 @@ export default function AppShell() {
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      <Sidebar open={sidebarOpen} width={sidebarWidth} onToggle={() => setSidebarOpen((o) => !o)} />
+      <Sidebar open={sidebarOpen} width={sidebarWidth} onToggle={() => setSidebarOpen((o) => !o)} onSettingsClick={() => setSettingsOpen(true)} />
       <Box
         sx={{
           display: 'flex',
@@ -131,6 +133,8 @@ export default function AppShell() {
         seedKey={aiSeedKey}
       />
       <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       {reportModal && (
         <ReportPreviewDialog

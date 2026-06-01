@@ -63,6 +63,7 @@ export default function DashboardPage() {
   const [headerOpen, setHeaderOpen] = useState(true);
   const [sources, setSources] = useState(null);
   const [deleteError, setDeleteError] = useState('');
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   // P5: refreshTick drives card data refetches on auto-refresh.
   const [refreshTick, setRefreshTick] = useState(0);
   const { dashboard, setDashboard, loading, fetchError, save, refresh, isNew } = useDashboard(id);
@@ -234,6 +235,8 @@ export default function DashboardPage() {
     } else {
       await save(dashboard);
       setEditMode(false);
+      setSaveSuccessMsg('Dashboard saved successfully');
+      setTimeout(() => setSaveSuccessMsg(''), 2500);
     }
   }, [dashboard, isNew, save, navigate]);
 
@@ -544,12 +547,24 @@ export default function DashboardPage() {
 
       {/* B6: MUI Snackbar replaces window.alert for delete errors */}
       <Snackbar
+        open={!!saveSuccessMsg}
+        autoHideDuration={2500}
+        onClose={() => setSaveSuccessMsg('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" variant="filled" icon={false} onClose={() => setSaveSuccessMsg('')}
+          sx={{ bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', '& .MuiAlert-action': { color: '#166534' } }}>
+          {saveSuccessMsg}
+        </Alert>
+      </Snackbar>
+      <Snackbar
         open={!!deleteError}
         autoHideDuration={5000}
         onClose={() => setDeleteError('')}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Alert severity="error" onClose={() => setDeleteError('')} sx={{ width: '100%' }}>
+        <Alert severity="error" variant="filled" icon={false} onClose={() => setDeleteError('')}
+          sx={{ bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 600, border: '1px solid #fecaca', '& .MuiAlert-action': { color: '#991b1b' } }}>
           {deleteError}
         </Alert>
       </Snackbar>

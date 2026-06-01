@@ -8,6 +8,8 @@ import {
   Tabs, Tab, Table, TableHead, TableRow, TableCell, TableBody, LinearProgress,
   Popover,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
+import HighlightOffOutlinedIcon from '@mui/icons-material/HighlightOffOutlined';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -130,6 +132,8 @@ export default function ReconPreviewDialog({ open, reconId, isNew, onClose, onSa
   const [running, setRunning] = useState(false);
   const [error, setError] = useState('');
   const [savedMsg, setSavedMsg] = useState('');
+  const [runMsg, setRunMsg] = useState('');
+  const [signoffMsg, setSignoffMsg] = useState('');
   const [runs, setRuns] = useState([]);
   const [railOpen, setRailOpen] = useState(true);
   const [metaEditing, setMetaEditing] = useState(false);
@@ -291,7 +295,7 @@ export default function ReconPreviewDialog({ open, reconId, isNew, onClose, onSa
       baselineRef.current = snapshot(next);
       setDirty(false);
       setMetaEditing(false);
-      setSavedMsg('Saved');
+      setSavedMsg('Reconciliation saved successfully');
       setTimeout(() => setSavedMsg(''), 2500);
       onSaved?.(data);
     } catch (e) {
@@ -314,6 +318,8 @@ export default function ReconPreviewDialog({ open, reconId, isNew, onClose, onSa
       // Switch to the embedded Results tab instead of navigating away.
       setSelectedRunId(r2.data.runId);
       setTab(3);
+      setRunMsg('Reconciliation run complete');
+      setTimeout(() => setRunMsg(''), 2500);
       // Refresh the run history list in the background.
       api.get(`/recons/${id}/runs`).then(({ data }) => setRuns(data || [])).catch(() => {});
     } catch (e) {
@@ -366,46 +372,60 @@ What would you like to know?`,
       maxWidth={false}
       PaperProps={{
         sx: {
-          width: '96vw', height: '95vh', m: 0, borderRadius: 3, maxWidth: 'none',
+          width: '96vw', height: '95vh', m: 0, borderRadius: 4, maxWidth: 'none',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          boxShadow: '0 24px 64px rgba(15,23,42,0.18)',
+          boxShadow: '0 32px 64px rgba(0,0,0,0.14)',
+          border: '1px solid',
+          borderColor: 'divider',
         },
       }}
     >
-      {/* ── Header bar ───────────────────────────────────────────── */}
-      <Box sx={{
-        bgcolor: 'background.paper',
-        borderBottom: '1px solid',
-        borderColor: 'divider',
-        px: 3, py: 2,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        flexShrink: 0,
-      }}>
-        <Stack direction="row" alignItems="center" spacing={1.5}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 1.5, bgcolor: '#eff6ff', flexShrink: 0 }}>
-            <CompareArrowsIcon sx={{ fontSize: 18, color: '#1e40af' }} />
-          </Box>
+      {/* ── Branded header ── */}
+      <Box
+        sx={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          px: 3, pt: 3, pb: 2.5, flexShrink: 0,
+          background: 'linear-gradient(135deg, rgba(30,64,175,0.05) 0%, rgba(99,102,241,0.04) 100%)',
+          borderBottom: '1px solid', borderColor: 'divider',
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <img src="/fyntrac9.png" alt="Fyntrac" style={{ width: 72, height: 'auto' }} />
           <Box>
-            <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>
-              {recon.name || (isNew ? 'New reconciliation' : 'Reconciliation')}
-            </Typography>
-            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.25, flexWrap: 'wrap' }}>
+            <Chip
+              label="Reconciliation"
+              size="small"
+              sx={{
+                height: 18, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
+                textTransform: 'uppercase', bgcolor: alpha('#3f51b5', 0.1),
+                color: '#3f51b5', mb: 0.5, borderRadius: 1,
+              }}
+            />
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2, color: 'text.primary' }} noWrap>
+                {recon.name || (isNew ? 'New Reconciliation' : 'Reconciliation')}
+              </Typography>
               {recon.sourceA?.displayName && (
-                <Chip size="small" variant="outlined" label={`A: ${recon.sourceA.displayName}`}
-                  sx={{ height: 18, fontSize: '0.65rem', borderRadius: 1 }} />
+                <Chip size="small" variant="outlined" label={`A: ${recon.sourceA.displayName}`} sx={{ height: 18, fontSize: '0.65rem', borderRadius: 1 }} />
               )}
               {recon.sourceB?.displayName && (
-                <Chip size="small" variant="outlined" label={`B: ${recon.sourceB.displayName}`}
-                  sx={{ height: 18, fontSize: '0.65rem', borderRadius: 1 }} />
+                <Chip size="small" variant="outlined" label={`B: ${recon.sourceB.displayName}`} sx={{ height: 18, fontSize: '0.65rem', borderRadius: 1 }} />
               )}
               {dirty && (
-                <Chip size="small" color="warning" variant="outlined" label="Unsaved changes"
-                  sx={{ height: 18, fontSize: '0.65rem', borderRadius: 1 }} />
+                <Chip size="small" color="warning" variant="outlined" label="Unsaved changes" sx={{ height: 18, fontSize: '0.65rem', borderRadius: 1 }} />
               )}
             </Stack>
           </Box>
-        </Stack>
-        <IconButton size="small" onClick={handleClose}><CloseIcon fontSize="small" /></IconButton>
+        </Box>
+        <Tooltip title="Close" placement="left">
+          <IconButton
+            onClick={handleClose}
+            size="small"
+            sx={{ color: 'text.secondary', bgcolor: 'action.hover', borderRadius: 2, '&:hover': { bgcolor: 'error.50', color: 'error.main' } }}
+          >
+            <HighlightOffOutlinedIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {/* ── Step tabs (KPI-style) ─────────────────────────────────── */}
@@ -587,7 +607,7 @@ What would you like to know?`,
                     boxShadow: 'none',
                   }}
                 >
-                  {running ? 'Running…' : 'Run now'}
+                  {running ? 'Running…' : 'Run Preview'}
                 </Button>
                 <Button
                   size="small" variant="contained" fullWidth
@@ -828,6 +848,7 @@ What would you like to know?`,
                   onGoToConfig={() => setTab(0)}
                   reconName={recon.name}
                   mapping={recon.mapping}
+                  setSignoffMsg={setSignoffMsg}
                 />
               )}
             </>
@@ -862,9 +883,41 @@ What would you like to know?`,
         <Alert
           severity="success" variant="filled" icon={false}
           onClose={() => setSavedMsg('')}
-          sx={{ bgcolor: '#d1fae5', color: '#065f46', fontWeight: 600, border: '1px solid #a7f3d0' }}
+          sx={{ bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', boxShadow: '0 6px 16px rgba(22,163,74,0.15)', '& .MuiAlert-action': { color: '#166534' } }}
         >
           {savedMsg}
+        </Alert>
+      </Snackbar>
+
+      <Snackbar
+        open={!!runMsg}
+        autoHideDuration={2500}
+        onClose={() => setRunMsg('')}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        sx={{ mt: 8, zIndex: (theme) => theme.zIndex.modal + 20 }}
+      >
+        <Alert
+          severity="success" variant="filled" icon={false}
+          onClose={() => setRunMsg('')}
+          sx={{ bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', boxShadow: '0 6px 16px rgba(22,163,74,0.15)', '& .MuiAlert-action': { color: '#166534' } }}
+        >
+          {runMsg}
+        </Alert>
+      </Snackbar>
+
+      <Snackbar
+        open={!!signoffMsg}
+        autoHideDuration={2500}
+        onClose={() => setSignoffMsg('')}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        sx={{ mt: 8, zIndex: (theme) => theme.zIndex.modal + 20 }}
+      >
+        <Alert
+          severity="success" variant="filled" icon={false}
+          onClose={() => setSignoffMsg('')}
+          sx={{ bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', boxShadow: '0 6px 16px rgba(22,163,74,0.15)', '& .MuiAlert-action': { color: '#166534' } }}
+        >
+          {signoffMsg}
         </Alert>
       </Snackbar>
     </Dialog>
@@ -997,7 +1050,7 @@ function FxRatesEditor({ baseCurrency, rates, onChange }) {
   );
 }
 
-function RunResultsView({ reconId, runId, runs, onPickRun, onGoToConfig, reconName, mapping }) {
+function RunResultsView({ reconId, runId, runs, onPickRun, onGoToConfig, reconName, mapping, setSignoffMsg }) {
   const [run, setRun] = useState(null);
   const [bucket, setBucket] = useState('matched');
   const [loading, setLoading] = useState(false);
@@ -1040,6 +1093,8 @@ function RunResultsView({ reconId, runId, runs, onPickRun, onGoToConfig, reconNa
     try {
       await api.post(`/recons/runs/${runId}/signoff`, { certified: !certified });
       await fetchRun();
+      setSignoffMsg(certified ? 'Certification removed' : 'Run certified successfully');
+      setTimeout(() => setSignoffMsg(''), 2500);
     } catch (e) { setError(e.response?.data?.error || e.message); }
     finally { setSigning(false); }
   };
@@ -1096,7 +1151,7 @@ Keep it concise and finance-focused. Cite specific numbers.`;
   if (!reconId) {
     return (
       <Alert severity="info">
-        Save the reconciliation, then click <b>Run now</b> to see results here.
+        Save the reconciliation, then click <b>Run Preview</b> to see results here.
       </Alert>
     );
   }
@@ -1105,7 +1160,7 @@ Keep it concise and finance-focused. Cite specific numbers.`;
       <Alert severity="info" action={
         <Button size="small" onClick={onGoToConfig}>Configure</Button>
       }>
-        No runs yet. Click <b>Run now</b> in the side panel to compare and the results will appear here.
+        No runs yet. Click <b>Run Preview</b> in the side panel to compare and the results will appear here.
       </Alert>
     );
   }
@@ -1250,7 +1305,7 @@ Keep it concise and finance-focused. Cite specific numbers.`;
           <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, fontSize: '0.65rem' }}>Match rate</Typography>
           <Typography variant="h5" sx={{ fontWeight: 700, color: '#0f172a', mt: 0.25 }}>{(matchRate * 100).toFixed(1)}%</Typography>
           <LinearProgress variant="determinate" value={matchRate * 100}
-            sx={{ mt: 1, height: 6, borderRadius: 3, bgcolor: '#f1f5f9', '& .MuiLinearProgress-bar': { bgcolor: matchRate > 0.95 ? '#16a34a' : matchRate > 0.8 ? '#eab308' : '#dc2626' } }} />
+            sx={{ mt: 1, height: 6, borderRadius: 3, bgcolor: '#f1f5f9', '& .MuiLinearProgress-bar': { bgcolor: matchRate > 0.95 ? '#86efac' : matchRate > 0.8 ? '#fcd34d' : '#fca5a5' } }} />
           {trend.length > 1 && (
             <Box sx={{ mt: 1.25 }}>
               <Sparkline values={trend} color="#3b82f6" />
@@ -1263,11 +1318,11 @@ Keep it concise and finance-focused. Cite specific numbers.`;
           <Stack spacing={1.25} sx={{ mt: 1 }}>
             <Box>
               <Stack direction="row" justifyContent="space-between"><Typography variant="caption" sx={{ fontWeight: 600, color: '#1e40af' }}>Side A</Typography><Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{(coverageA * 100).toFixed(1)}%</Typography></Stack>
-              <LinearProgress variant="determinate" value={coverageA * 100} sx={{ height: 6, borderRadius: 3, bgcolor: '#eff6ff', '& .MuiLinearProgress-bar': { bgcolor: '#3b82f6' } }} />
+              <LinearProgress variant="determinate" value={coverageA * 100} sx={{ height: 6, borderRadius: 3, bgcolor: '#eff6ff', '& .MuiLinearProgress-bar': { bgcolor: '#93c5fd' } }} />
             </Box>
             <Box>
               <Stack direction="row" justifyContent="space-between"><Typography variant="caption" sx={{ fontWeight: 600, color: '#7c3aed' }}>Side B</Typography><Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{(coverageB * 100).toFixed(1)}%</Typography></Stack>
-              <LinearProgress variant="determinate" value={coverageB * 100} sx={{ height: 6, borderRadius: 3, bgcolor: '#faf5ff', '& .MuiLinearProgress-bar': { bgcolor: '#7c3aed' } }} />
+              <LinearProgress variant="determinate" value={coverageB * 100} sx={{ height: 6, borderRadius: 3, bgcolor: '#faf5ff', '& .MuiLinearProgress-bar': { bgcolor: '#c4b5fd' } }} />
             </Box>
           </Stack>
         </Box>

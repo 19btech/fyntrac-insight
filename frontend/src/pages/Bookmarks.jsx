@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Box, Typography, Paper, List, ListItem, ListItemButton, ListItemIcon,
-  ListItemText, IconButton, Chip, CircularProgress, Alert,
+  ListItemText, IconButton, Chip, CircularProgress, Alert, Snackbar,
 } from '@mui/material';
 import StarIcon from '@mui/icons-material/Star';
 import DashboardIcon from '@mui/icons-material/Dashboard';
@@ -33,6 +33,12 @@ export default function Bookmarks() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const [toast, setToast] = useState({ open: false, msg: '', ok: true });
+
+  const showToast = (msg, ok = true) => {
+    setToast({ open: true, msg, ok });
+    setTimeout(() => setToast((t) => ({ ...t, open: false })), 3000);
+  };
 
   const load = () => {
     setLoading(true);
@@ -45,8 +51,14 @@ export default function Bookmarks() {
   useEffect(load, []);
 
   const remove = async (b) => {
-    await api.delete(`/bookmarks/${b.itemType}/${b.itemId}`);
-    load();
+    try {
+      const name = b.name || b.itemType;
+      await api.delete(`/bookmarks/${b.itemType}/${b.itemId}`);
+      load();
+      showToast(`"${name}" bookmark removed`);
+    } catch (e) {
+      showToast(e.response?.data?.error || 'Failed to remove bookmark', false);
+    }
   };
 
   if (loading) return <Box sx={{ p: 4 }}><CircularProgress /></Box>;
@@ -87,6 +99,25 @@ export default function Bookmarks() {
           </List>
         )}
       </Paper>
+
+      <Snackbar
+        open={toast.open}
+        onClose={() => setToast((t) => ({ ...t, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        autoHideDuration={3000}
+      >
+        <Alert
+          severity={toast.ok ? 'success' : 'error'}
+          variant="filled"
+          icon={false}
+          onClose={() => setToast((t) => ({ ...t, open: false }))}
+          sx={toast.ok
+            ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', '& .MuiAlert-action': { color: '#166534' } }
+            : { bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 600, border: '1px solid #fecaca', '& .MuiAlert-action': { color: '#991b1b' } }}
+        >
+          {toast.msg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

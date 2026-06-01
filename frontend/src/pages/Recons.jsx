@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Box, Typography, Button, Grid, Card, IconButton,
   Stack, Tooltip, CircularProgress, Dialog, DialogTitle,
-  DialogContent, DialogContentText, DialogActions,
+  DialogContent, DialogContentText, DialogActions, Snackbar, Alert,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -17,6 +17,12 @@ export default function ReconsPage() {
   const [loading, setLoading] = useState(true);
   const [runningId, setRunningId] = useState(null); // recon id currently being run
   const [deleteTarget, setDeleteTarget] = useState(null); // { id, name }
+  const [toast, setToast] = useState({ open: false, msg: '', ok: true });
+
+  const showToast = (msg, ok = true) => {
+    setToast({ open: true, msg, ok });
+    setTimeout(() => setToast((t) => ({ ...t, open: false })), 3000);
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -34,9 +40,11 @@ export default function ReconsPage() {
   }, [load]);
 
   const remove = async (id) => {
+    const name = deleteTarget?.name || '';
     await api.delete(`/recons/${id}`);
     setDeleteTarget(null);
     load();
+    showToast(`"${name}" deleted successfully`);
   };
 
   const run = async (id) => {
@@ -45,10 +53,11 @@ export default function ReconsPage() {
     try {
       await api.post(`/recons/${id}/run`);
       load();
+      showToast('Reconciliation run complete');
       // Open the modal directly on the Results tab
       window.dispatchEvent(new CustomEvent('fyntrac:open:recon', { detail: { id, initialTab: 3 } }));
     } catch (e) {
-      window.alert('Run failed: ' + (e.response?.data?.error || e.message));
+      showToast('Run failed: ' + (e.response?.data?.error || e.message), false);
     } finally { setRunningId(null); }
   };
 
@@ -167,6 +176,25 @@ export default function ReconsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={toast.open}
+        onClose={() => setToast((t) => ({ ...t, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        autoHideDuration={3000}
+      >
+        <Alert
+          severity={toast.ok ? 'success' : 'error'}
+          variant="filled"
+          icon={false}
+          onClose={() => setToast((t) => ({ ...t, open: false }))}
+          sx={toast.ok
+            ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', '& .MuiAlert-action': { color: '#166534' } }
+            : { bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 600, border: '1px solid #fecaca', '& .MuiAlert-action': { color: '#991b1b' } }}
+        >
+          {toast.msg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

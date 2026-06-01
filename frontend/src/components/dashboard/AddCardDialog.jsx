@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button, Box, Typography, Stack,
   TextField, List, ListItemButton, ListItemText, Chip, CircularProgress, Tabs, Tab,
-  FormControl, InputLabel, Select, MenuItem,
+  FormControl, InputLabel, Select, MenuItem, IconButton, Tooltip,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
+import HighlightOffOutlinedIcon from '@mui/icons-material/HighlightOffOutlined';
 import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
 import SpeedIcon from '@mui/icons-material/Speed';
 import VerifiedIcon from '@mui/icons-material/Verified';
@@ -129,8 +131,62 @@ export default function AddCardDialog({ open, onClose, onAdd }) {
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Add dashboard card</DialogTitle>
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: 4,
+          boxShadow: '0 32px 64px rgba(0,0,0,0.14)',
+          overflow: 'hidden',
+          border: '1px solid',
+          borderColor: 'divider',
+        },
+      }}
+    >
+      <DialogTitle sx={{ p: 0 }}>
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            px: 3,
+            pt: 3,
+            pb: 2.5,
+            background: 'linear-gradient(135deg, rgba(30,64,175,0.05) 0%, rgba(99,102,241,0.04) 100%)',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <img src="/fyntrac9.png" alt="Fyntrac" style={{ width: 72, height: 'auto' }} />
+            <Box>
+              <Chip
+                label="Dashboard"
+                size="small"
+                sx={{
+                  height: 18, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
+                  textTransform: 'uppercase', bgcolor: alpha('#3f51b5', 0.1),
+                  color: '#3f51b5', mb: 0.5, borderRadius: 1,
+                }}
+              />
+              <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2, color: 'text.primary' }}>
+                Add Dashboard Card
+              </Typography>
+            </Box>
+          </Box>
+          <Tooltip title="Close" placement="left">
+            <IconButton
+              onClick={onClose}
+              size="small"
+              sx={{
+                color: 'text.secondary', bgcolor: 'action.hover', borderRadius: 2,
+                '&:hover': { bgcolor: 'error.50', color: 'error.main' },
+              }}
+            >
+              <HighlightOffOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      </DialogTitle>
       <DialogContent dividers>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
           <Tab icon={<QuestionAnswerIcon fontSize="small" />} iconPosition="start" label="Reports" />

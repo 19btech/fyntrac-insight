@@ -1,15 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Drawer, Box, Typography, IconButton, TextField, Divider,
-  CircularProgress, Tooltip, Stack, Button, Chip,
+  Tooltip, Stack, Avatar, Paper,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import CloseIcon from '@mui/icons-material/Close';
-import SendIcon from '@mui/icons-material/Send';
+import SendRoundedIcon from '@mui/icons-material/SendRounded';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import AIChatMessage from './AIChatMessage';
 import AISettingsDialog from './AISettingsDialog';
-import AIIntentChooser, { INTENT_TEMPLATES } from './AIIntentChooser';
-import AIPlanCard from './AIPlanCard';
 import { streamSSE } from '../../hooks/useAI';
 import api from '../../hooks/useQuery';
 import useReportContextStore from '../../store/reportContextStore';
@@ -17,33 +17,14 @@ import useDatasetContextStore from '../../store/datasetContextStore';
 import useReconContextStore from '../../store/reconContextStore';
 import useKpiContextStore from '../../store/kpiContextStore';
 
-/**
- * Fyntrac AI co-pilot drawer.
- *
- * Two surfaces share this drawer:
- *  1) Intent launcher (default on open) — user picks "Build a report",
- *     "Explain this number", etc. Each tile maps to a structured tool call
- *     that returns a plan card instead of free-form prose.
- *  2) Free chat — escape hatch for power users; streams as before.
- *
- * Turns are an array of { kind: 'chat'|'plan', role, content, plan?, prompt? }.
- * 'plan' turns render via AIPlanCard with named slots and a refine bar.
- */
 export default function AIChatDrawer({ open, onClose, context, initialPrompt, seedKey }) {
   const [turns, setTurns] = useState([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
-  const [planning, setPlanning] = useState(false);
-  const [showLauncher, setShowLauncher] = useState(false);
-  const [activeIntent, setActiveIntent] = useState('free');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aiSettings, setAiSettings] = useState(null);
   const bottomRef = useRef(null);
-  // Always-fresh reference to sendChat — avoids stale-closure bugs in the
-  // initialPrompt effect (sendChat is defined later in the function body).
   const sendChatRef = useRef(null);
-  // Active report (if any) — published by QuestionEditor. Lets the drawer
-  // ground answers in the report the user is currently viewing.
   const activeReport = useReportContextStore((s) => s.report);
   const activeDataset = useDatasetContextStore((s) => s.dataset);
   const activeRecon = useReconContextStore((s) => s.recon);
@@ -62,23 +43,16 @@ export default function AIChatDrawer({ open, onClose, context, initialPrompt, se
     }
   }, [open]);
 
-  // When the drawer opens with a pre-seeded prompt (e.g. from a follow-up
-  // chip in the AI Explain panel), hide the intent launcher and auto-send.
-  // We use sendChatRef (updated every render) to avoid stale-closure issues,
-  // and `seedKey` as a dep so clicking the same text twice still fires.
+  // When the drawer opens with a pre-seeded prompt, auto-send it.
   useEffect(() => {
     if (open && initialPrompt) {
-      setShowLauncher(false);
-      setActiveIntent('free');
-      // Defer one tick so React has flushed state updates from opening the
-      // drawer before we push the first message onto the turns list.
       setTimeout(() => sendChatRef.current?.(initialPrompt), 0);
     }
   }, [open, initialPrompt, seedKey]); // eslint-disable-line
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [turns]);
 
-  const reset = () => { setTurns([]); setShowLauncher(false); setActiveIntent('free'); };
+  const reset = () => { setTurns([]); };
 
   const friendlyAIError = (err) => {
     const raw = (err?.response?.data?.error || err?.message || '').toLowerCase();
@@ -141,59 +115,15 @@ export default function AIChatDrawer({ open, onClose, context, initialPrompt, se
   // latest version of sendChat (avoids stale closure over `streaming`/`turns`).
   sendChatRef.current = sendChat;
 
-  const sendPlan = async ({ prompt, intent }) => {
-    if (!prompt || planning) return;
-    setShowLauncher(false);
-    setActiveIntent(intent);
-    setInput('');
-    setTurns((prev) => [...prev, { kind: 'chat', role: 'user', content: prompt }]);
-    setPlanning(true);
-    setTurns((prev) => [...prev, { kind: 'plan', role: 'assistant', loading: true, prompt, intent }]);
-    try {
-      const mergedCtx = { ...(context || {}), activeReport: activeReport || null, activeDataset: activeDataset || null, activeRecon: activeRecon || null, activeKpi: activeKpi || null };
-      const { data } = await api.post('/ai/plan', { prompt, intent, currentContext: mergedCtx });
-      setTurns((prev) => {
-        const out = [...prev];
-        out[out.length - 1] = { kind: 'plan', role: 'assistant', loading: false, prompt, intent, plan: data };
-        return out;
-      });
-    } catch (err) {
-      setTurns((prev) => {
-        const out = [...prev];
-        out[out.length - 1] = { kind: 'plan', role: 'assistant', loading: false, prompt, intent, error: friendlyAIError(err) };
-        return out;
-      });
-    } finally {
-      setPlanning(false);
-    }
-  };
-
-  const handleIntentPick = ({ intent, prompt }) => {
-    sendPlan({ intent, prompt });
-  };
-
-  const handleRefine = (chip, lastPlan) => {
-    const refinePrompt = `${lastPlan?.prompt || 'this report'} — ${chip.refinement}`;
-    sendPlan({ intent: 'refine', prompt: refinePrompt });
-  };
-
   const handleSubmit = () => {
     const text = input.trim();
     if (!text) return;
-    if (activeIntent && activeIntent !== 'free') sendPlan({ intent: activeIntent, prompt: text });
-    else sendChat();
+    sendChat();
   };
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
   };
-
-  const lastPlanTurn = [...turns].reverse().find((t) => t.kind === 'plan' && t.plan);
-  const placeholder = activeIntent === 'free'
-    ? 'Ask anything…'
-    : activeIntent
-      ? (INTENT_TEMPLATES[activeIntent]?.placeholder || 'Refine your request…')
-      : 'Pick a starting point above, or type freely';
 
   return (
     <Drawer
@@ -201,22 +131,83 @@ export default function AIChatDrawer({ open, onClose, context, initialPrompt, se
       open={open}
       onClose={onClose}
       sx={{ zIndex: (theme) => theme.zIndex.modal + 10 }}
-      PaperProps={{ sx: { width: 520, display: 'flex', flexDirection: 'column' } }}
+      PaperProps={{
+        sx: {
+          width: 520,
+          display: 'flex',
+          flexDirection: 'column',
+          bgcolor: '#fafbff',
+          backgroundImage: 'none',
+        },
+      }}
     >
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider', gap: 1 }}>
-        <Typography variant="h4" sx={{ flex: 1 }}>Ask Insight</Typography>
-        {aiSettings && (
-          <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {aiSettings.activeModel
-              || aiSettings.providers[aiSettings.activeProvider]?.model
-              || `${aiSettings.activeProvider} · default`}
-          </Typography>
-        )}
-        {turns.length > 0 && (
-          <Tooltip title="Start over"><IconButton size="small" onClick={reset}><RestartAltIcon fontSize="small" /></IconButton></Tooltip>
-        )}
-        <IconButton size="small" onClick={onClose}><CloseIcon /></IconButton>
+      {/* ── Header ── */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          px: 2.5,
+          py: 1.75,
+          background: 'linear-gradient(135deg, rgba(30,64,175,0.06) 0%, rgba(99,102,241,0.05) 100%)',
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          gap: 1.5,
+          flexShrink: 0,
+        }}
+      >
+        {/* Logo + title */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1, minWidth: 0 }}>
+          <Box
+            sx={{
+              width: 36, height: 36, borderRadius: 2.5,
+              background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0, boxShadow: '0 2px 8px rgba(79,70,229,0.35)',
+            }}
+          >
+            <AutoAwesomeIcon sx={{ fontSize: 18, color: '#fff' }} />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle1" fontWeight={700} sx={{ lineHeight: 1.15, color: 'text.primary' }}>
+              Ask Insight
+            </Typography>
+            {aiSettings && (
+              <Typography
+                variant="caption"
+                sx={{
+                  color: 'text.disabled', display: 'block', lineHeight: 1.2,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220,
+                }}
+              >
+                {aiSettings.activeModel
+                  || aiSettings.providers?.[aiSettings.activeProvider]?.model
+                  || `${aiSettings.activeProvider} · default`}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+
+        {/* Actions */}
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          {turns.length > 0 && (
+            <Tooltip title="New conversation">
+              <IconButton
+                size="small" onClick={reset}
+                sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main', bgcolor: alpha('#6366f1', 0.08) } }}
+              >
+                <RestartAltIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          <Tooltip title="Close">
+            <IconButton
+              size="small" onClick={onClose}
+              sx={{ color: 'text.secondary', '&:hover': { color: 'error.main', bgcolor: alpha('#ef4444', 0.08) } }}
+            >
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
       </Box>
 
       <AISettingsDialog
@@ -225,87 +216,107 @@ export default function AIChatDrawer({ open, onClose, context, initialPrompt, se
         onSaved={refreshSettings}
       />
 
-      {/* Body */}
-      <Box sx={{ flex: 1, overflow: 'auto', px: 2, py: 1.5 }}>
-        {showLauncher && turns.length === 0 ? (
-          <AIIntentChooser onPick={handleIntentPick} onFree={() => { setShowLauncher(false); setActiveIntent('free'); }} context={context} />
-        ) : (
-          <>
-            {turns.map((t, i) => {
-              if (t.kind === 'plan') {
-                return (
-                  <AIPlanCard
-                    key={i}
-                    prompt={t.prompt}
-                    plan={t.plan}
-                    loading={t.loading}
-                    error={t.error}
-                    mode={context?.mode}
-                    onRefine={(chip) => handleRefine(chip, t)}
-                  />
-                );
-              }
-              return <AIChatMessage key={i} message={t} />;
-            })}
-            {streaming && turns[turns.length - 1]?.role === 'assistant' && turns[turns.length - 1]?.content === '' && (
-              <CircularProgress size={16} sx={{ ml: 1, mt: 1 }} />
+      {/* ── Conversation body ── */}
+      <Box sx={{ flex: 1, overflow: 'auto', px: 2.5, py: 2, display: 'flex', flexDirection: 'column', gap: 0 }}>
+        <>
+          {turns.map((t, i) => <AIChatMessage key={i} message={t} />)}
+          {streaming && turns[turns.length - 1]?.role === 'assistant' && turns[turns.length - 1]?.content === '' && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 1 }}>
+                <Avatar
+                  sx={{
+                    width: 28, height: 28, flexShrink: 0,
+                    background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                  }}
+                >
+                  <AutoAwesomeIcon sx={{ fontSize: 14 }} />
+                </Avatar>
+                <Paper
+                  elevation={0}
+                  sx={{
+                    px: 2, py: 1.25,
+                    bgcolor: '#fff',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: '4px 16px 16px 16px',
+                    display: 'flex', alignItems: 'center', gap: 0.75,
+                  }}
+                >
+                  {[0.2, 0.4, 0.6].map((delay) => (
+                    <Box
+                      key={delay}
+                      sx={{
+                        width: 7, height: 7, borderRadius: '50%',
+                        bgcolor: '#6366f1', opacity: 0.7,
+                        animation: 'fyntrac-pulse 1.2s ease-in-out infinite',
+                        animationDelay: `${delay}s`,
+                        '@keyframes fyntrac-pulse': {
+                          '0%, 100%': { transform: 'scale(0.7)', opacity: 0.4 },
+                          '50%': { transform: 'scale(1)', opacity: 1 },
+                        },
+                      }}
+                    />
+                  ))}
+                </Paper>
+              </Box>
             )}
-          </>
-        )}
+        </>
         <div ref={bottomRef} />
       </Box>
 
-      {/* Refine bar — visible after we have a plan */}
-      {lastPlanTurn?.plan && !planning && (
-        <Box sx={{ px: 2, pb: 1 }}>
-          <Typography variant="caption" color="text.secondary">Refine:</Typography>
-          <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-            {REFINE_CHIPS.map((c) => (
-              <Chip key={c.label} label={c.label} size="small" clickable
-                onClick={() => handleRefine(c, lastPlanTurn)}
-                sx={{ fontSize: '0.72rem', height: 22 }} />
-            ))}
-          </Stack>
-        </Box>
-      )}
-
       <Divider />
 
-      {/* Input */}
-      <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, px: 2, py: 1.5 }}>
-        <TextField
-          multiline
-          maxRows={4}
-          placeholder={placeholder}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          fullWidth
-          size="small"
-          disabled={streaming || planning}
-        />
-        <IconButton color="primary" onClick={handleSubmit} disabled={!input.trim() || streaming || planning}>
-          {planning ? <CircularProgress size={18} /> : <SendIcon />}
-        </IconButton>
-      </Box>
-      {!showLauncher && turns.length === 0 && (
-        <Box sx={{ px: 2, pb: 1.5 }}>
-          <Button size="small" onClick={() => { setShowLauncher(true); setActiveIntent(null); }}>← Back to starters</Button>
+      {/* ── Input bar ── */}
+      <Box sx={{ px: 2.5, pt: 1.5, pb: 2, flexShrink: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
+          <TextField
+            multiline
+            maxRows={4}
+            placeholder="Ask anything…"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            fullWidth
+            size="small"
+            disabled={streaming}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 3,
+                bgcolor: '#fff',
+                fontSize: '0.875rem',
+                '& fieldset': { borderColor: alpha('#6366f1', 0.25) },
+                '&:hover fieldset': { borderColor: alpha('#6366f1', 0.5) },
+                '&.Mui-focused fieldset': { borderColor: '#6366f1' },
+              },
+            }}
+          />
+          <Tooltip title="Send (Enter)">
+            <span>
+              <IconButton
+                onClick={handleSubmit}
+                disabled={!input.trim() || streaming}
+                sx={{
+                  width: 40, height: 40, borderRadius: 2.5, flexShrink: 0,
+                  background: (!input.trim() || streaming)
+                    ? undefined
+                    : 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                  color: (!input.trim() || streaming) ? undefined : '#fff',
+                  boxShadow: (!input.trim() || streaming) ? undefined : '0 2px 8px rgba(79,70,229,0.35)',
+                  '&:hover': {
+                    background: (!input.trim() || streaming)
+                      ? undefined
+                      : 'linear-gradient(135deg, #4338ca 0%, #6d28d9 100%)',
+                  },
+                  transition: 'all 0.2s',
+                }}
+              >
+                <SendRoundedIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
         </Box>
-      )}
+      </Box>
     </Drawer>
   );
 }
 
-const REFINE_CHIPS = [
-  { label: 'Last quarter', refinement: 'apply Last quarter as the time period' },
-  { label: 'YTD', refinement: 'apply Year to date as the time period' },
-  { label: 'Last year', refinement: 'apply Last year as the time period' },
-  { label: 'By region', refinement: 'group the result by region' },
-  { label: 'By account', refinement: 'group the result by account' },
-  { label: 'Top 10', refinement: 'limit to the top 10 rows by the main metric' },
-  { label: 'As bar', refinement: 'show as a bar chart' },
-  { label: 'As line', refinement: 'show as a line chart over time' },
-  { label: 'As table', refinement: 'show as a table' },
-  { label: 'Compact', refinement: 'use compact (K/M) number formatting' },
-];
+

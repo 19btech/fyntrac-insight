@@ -95,6 +95,8 @@ function compileSide(side, periodMatch, topMatch) {
 function compileKpi(definition, periodMatch = null) {
   if (!definition || !definition.numerator) return [];
   const num = definition.numerator;
+  // Guard: $sum/$avg/$min/$max require a non-empty field — skip if missing.
+  if (num.agg !== '$count' && !num.field) return [];
   const den = definition.denominator;
   const topMatch = buildMatch(definition.filters);
   // Skip denominator if it's absent, has no aggregation, or (for non-count

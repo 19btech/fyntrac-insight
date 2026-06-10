@@ -15,6 +15,15 @@ const modelSchema = new mongoose.Schema(
     // Visual step-stack used by the dataset editor (Phase B). When present
     // it is the source of truth and `pipeline` is regenerated from it on save.
     steps: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    // How this dataset is defined:
+    //   'steps'      — the visual step stack above (default, MongoDB pipeline)
+    //   'savedQuery' — a saved Prism (SQL) query; preview/output come from SQL
+    // Only one mode is active at a time; the other's config is retained so the
+    // user can switch back without losing work.
+    sourceMode: { type: String, enum: ['steps', 'savedQuery'], default: 'steps' },
+    savedQueryId: { type: mongoose.Schema.Types.ObjectId, ref: 'SavedQuery', default: null },
+    savedQuerySql: { type: String, default: '' }, // snapshot so the dataset survives query edits/deletes
+    savedQueryName: { type: String, default: '' },
     // Persisted user-defined column order for the dataset preview / consumers.
     // Names not in this array are appended in their natural pipeline order so
     // schema additions don't get hidden.

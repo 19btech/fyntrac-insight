@@ -343,6 +343,8 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
     if ((sourceKind === 'dataset' || sourceKind === 'question') && !sourceId) return;
     // Require either a valid definition or a non-empty pipeline.
     if (!usePipeline && !definition?.numerator?.agg) return;
+    // $sum/$avg/$min/$max require a target field; $count does not.
+    if (!usePipeline && definition?.numerator?.agg !== '$count' && !definition?.numerator?.field) return;
     if (usePipeline) {
       try { JSON.parse(pipeline); } catch { return; }
     }
@@ -639,18 +641,20 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
                   <SearchSelect
                     value={sourceId}
                     onChange={(val) => setSourceId(val || '')}
-                    options={datasets.map((d) => ({ value: d._id, label: d.name }))}
+                    options={datasets.map((d) => ({ value: String(d._id), label: d.name }))}
                     label="Source dataset"
                     width={680}
+                    placeholder={datasets.length ? 'Select a dataset…' : 'No datasets found'}
                   />
                 )}
                 {sourceKind === 'question' && (
                   <SearchSelect
                     value={sourceId}
                     onChange={(val) => setSourceId(val || '')}
-                    options={questions.map((q) => ({ value: q._id, label: q.name }))}
+                    options={questions.map((q) => ({ value: String(q._id), label: q.name }))}
                     label="Source report"
                     width={680}
+                    placeholder={questions.length ? 'Select a report…' : 'No reports found'}
                   />
                 )}
               </SectionCard>

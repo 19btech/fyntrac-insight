@@ -36,7 +36,7 @@ export default function SearchSelect({
   const [search, setSearch] = useState('');
   const open = Boolean(anchorEl);
 
-  const selected = options.find((o) => o.value === value);
+  const selected = options.find((o) => String(o.value) === String(value));
 
   const filtered = useMemo(() => {
     if (onSearch) return options; // server-side search — show options as-is
@@ -164,7 +164,7 @@ export default function SearchSelect({
             </Box>
           ) : (
             displayOptions.map((opt) => {
-              const isSelected = opt.value === value;
+              const isSelected = String(opt.value) === String(value);
               return (
                 <ListItemButton
                   key={opt.value}

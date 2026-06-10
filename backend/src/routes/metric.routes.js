@@ -345,9 +345,24 @@ async function runEvaluation(metric, user) {
 router.post('/evaluate-preview', async (req, res) => {
   try {
     const { source, collection, definition, pipeline } = req.body;
+    const src = source || { kind: 'collection' };
+
+    // Early validation — missing collection for collection-kind source
+    if (src.kind === 'collection' && !collection) {
+      return res.status(400).json({ error: 'collection is required when source kind is "collection"' });
+    }
+    // Missing ID for dataset/question sources
+    if ((src.kind === 'dataset' || src.kind === 'question') && !src.id) {
+      return res.status(400).json({ error: `source.id is required for ${src.kind} source` });
+    }
+    // Require either a structured definition or a non-empty pipeline
+    if (!definition?.numerator && (!Array.isArray(pipeline) || pipeline.length === 0)) {
+      return res.status(400).json({ error: 'definition.numerator or pipeline is required' });
+    }
+
     const fakeMetric = {
       collection: collection || '',
-      source: source || { kind: 'collection' },
+      source: src,
       definition: definition || null,
       pipeline: Array.isArray(pipeline) ? pipeline : [],
       trend: { enabled: false, comparisonPipeline: [] },
@@ -362,7 +377,8 @@ router.post('/evaluate-preview', async (req, res) => {
       executionTimeMs: ev.executionTimeMs,
     });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    console.error('[evaluate-preview error]', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

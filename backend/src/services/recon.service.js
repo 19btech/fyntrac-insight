@@ -149,7 +149,7 @@ function applyTransform(value, transform, opts = {}) {
 async function materializeSide(side, user, limit = 0) {
   if (!side || !side.kind || !side.refId) throw new Error('Invalid source side');
   if (side.kind === 'dataset') {
-    const ds = await SavedModel.findOne({ _id: side.refId, tenantId: user.tenantId });
+    const ds = await user.getModel('SavedModel').findOne({ _id: side.refId, tenantId: user.tenantId });
     if (!ds) throw new Error(`Dataset not found: ${side.refId}`);
     // Push a $limit into the pipeline for sampled previews so we never run the
     // full aggregation just to estimate a match rate.
@@ -158,7 +158,7 @@ async function materializeSide(side, user, limit = 0) {
     return { name: ds.name, columns: result.columns || [], rows: result.data || [] };
   }
   if (side.kind === 'csv') {
-    const f = await ReconCsvFile.findOne({ _id: side.refId, tenantId: user.tenantId });
+    const f = await user.getModel('ReconCsvFile').findOne({ _id: side.refId, tenantId: user.tenantId });
     if (!f) throw new Error(`CSV file not found: ${side.refId}`);
     // Prefer pre-parsed rows stored at upload time; fall back to re-parsing raw text
     if (f.parsedRows && f.parsedRows.length > 0) {
@@ -600,7 +600,7 @@ function pickValues(aggRow, measureCols, attrCols, side) {
 async function materializeColumnsOnly(side, user) {
   if (!side || !side.kind || !side.refId) throw new Error('Invalid source side');
   if (side.kind === 'dataset') {
-    const ds = await SavedModel.findOne({ _id: side.refId, tenantId: user.tenantId });
+    const ds = await user.getModel('SavedModel').findOne({ _id: side.refId, tenantId: user.tenantId });
     if (!ds) throw new Error(`Dataset not found: ${side.refId}`);
     const pipeline = [...(ds.pipeline || []), { $limit: 200 }];
     const result = await mongoService.executePipeline(ds.sourceCollection, pipeline, user);

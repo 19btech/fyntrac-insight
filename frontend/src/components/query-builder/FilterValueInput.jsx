@@ -3,6 +3,7 @@ import {
   Autocomplete, TextField, Chip, CircularProgress, Box,
 } from '@mui/material';
 import api from '../../hooks/useQuery';
+import SearchSelect from '../shared/SearchSelect';
 
 // Module-level cache: collection+field+search → value[]
 // Keeps the network completely idle once a combo has been fetched.
@@ -25,7 +26,7 @@ function cacheKey(collection, field, search) {
  * responsible for resolving datasets/questions — that's done upstream by the
  * parent who already knows the source collection.
  */
-export default function FilterValueInput({ collection, field, operator, value, onChange, extraFields = [] }) {
+export default function FilterValueInput({ collection, field, operator, value, onChange, extraFields = [], sourceKind, sourceName, sourceId }) {
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [inputValue, setInputValue] = useState('');
@@ -66,7 +67,36 @@ export default function FilterValueInput({ collection, field, operator, value, o
 
   // Fetch distinct values from the backend, debounced, cached.
   const fetchValues = useCallback((search) => {
-    if (!resolvedCollection || !resolvedField) { setOptions([]); return; }
+    if (!resolvedField) { setOptions([]); return; }
+
+    // Source-aware path (e.g. KPI modal): dataset / report / collection sources
+    // resolve distinct values through /schema/source/values, which runs the
+    // source's pipeline first. Use whenever a sourceKind is supplied.
+    if (sourceKind) {
+      const params = { kind: sourceKind, field: resolvedField, search, limit: 20 };
+      if (sourceKind === 'collection') {
+        if (!sourceName) { setOptions([]); return; }
+        params.name = sourceName;
+      } else {
+        if (!sourceId) { setOptions([]); return; }
+        params.id = sourceId;
+      }
+      const key = cacheKey(`${sourceKind}:${sourceId || sourceName || ''}`, resolvedField, search);
+      if (_valCache[key]) { setOptions(_valCache[key]); return; }
+      setLoading(true);
+      api.get('/schema/source/values', { params })
+        .then((r) => {
+          const vals = (r.data || []).map(normaliseVal);
+          _valCache[key] = vals;
+          setOptions(vals);
+        })
+        .catch(() => setOptions([]))
+        .finally(() => setLoading(false));
+      return;
+    }
+
+    // Legacy path: raw source collection (dataset builder filter step).
+    if (!resolvedCollection) { setOptions([]); return; }
     const key = cacheKey(resolvedCollection, resolvedField, search);
     if (_valCache[key]) { setOptions(_valCache[key]); return; }
     setLoading(true);
@@ -80,7 +110,7 @@ export default function FilterValueInput({ collection, field, operator, value, o
       })
       .catch(() => setOptions([]))
       .finally(() => setLoading(false));
-  }, [resolvedCollection, resolvedField]); // eslint-disable-line
+  }, [sourceKind, sourceName, sourceId, resolvedCollection, resolvedField]); // eslint-disable-line
 
   // Initial load + load when collection/field changes.
   useEffect(() => {
@@ -95,6 +125,12 @@ export default function FilterValueInput({ collection, field, operator, value, o
     debounceRef.current = setTimeout(() => fetchValues(newInput), 280);
   };
 
+  // Debounced fetch for the SearchSelect value picker (mirrors FieldPicker UX).
+  const debouncedFetch = useCallback((s) => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchValues(s), 280);
+  }, [fetchValues]);
+
   // Don't render anything for $exists.
   if (isExists) return null;
 
@@ -107,7 +143,7 @@ export default function FilterValueInput({ collection, field, operator, value, o
         type={isNumeric ? 'number' : 'text'}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
-        sx={{ minWidth: 140 }}
+        sx={{ minWidth: 200 }}
         placeholder={isRegex ? 'Pattern…' : undefined}
       />
     );
@@ -133,7 +169,7 @@ export default function FilterValueInput({ collection, field, operator, value, o
         multiple
         freeSolo
         size="small"
-        sx={{ minWidth: 220 }}
+        sx={{ minWidth: 280 }}
         options={options}
         loading={loading}
         value={chipValues}
@@ -174,40 +210,18 @@ export default function FilterValueInput({ collection, field, operator, value, o
     );
   }
 
-  // Single-value autocomplete for $eq / $ne.
+  // Single-value picker for $eq / $ne — same searchable dropdown as the field
+  // selector (FieldPicker), backed by live distinct-value search. `allowCustom`
+  // lets the user commit a value that isn't in the sampled list.
   return (
-    <Autocomplete
-      freeSolo
-      size="small"
-      sx={{ minWidth: 180 }}
-      options={options}
-      loading={loading}
+    <SearchSelect
       value={normaliseVal(value ?? '')}
-      inputValue={inputValue || normaliseVal(value) || ''}
-      onInputChange={handleInputChange}
-      onChange={(_, newVal) => onChange(normaliseVal(newVal ?? ''))}
-      onBlur={() => {
-        // Commit whatever is typed even if not selected from dropdown.
-        if (inputValue !== undefined && inputValue !== (value ?? '')) {
-          onChange(normaliseVal(inputValue));
-        }
-      }}
-      renderInput={(params) => (
-        <TextField
-          {...params}
-          label="Value"
-          placeholder="Search or type…"
-          InputProps={{
-            ...params.InputProps,
-            endAdornment: (
-              <>
-                {loading && <CircularProgress size={14} />}
-                {params.InputProps.endAdornment}
-              </>
-            ),
-          }}
-        />
-      )}
+      onChange={(v) => onChange(normaliseVal(v ?? ''))}
+      options={options.map((v) => ({ value: v, label: v }))}
+      onSearch={debouncedFetch}
+      allowCustom
+      label="Value"
+      width={240}
     />
   );
 }

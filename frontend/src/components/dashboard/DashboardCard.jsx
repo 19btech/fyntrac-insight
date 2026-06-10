@@ -8,13 +8,13 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import DownloadMenu from '../shared/DownloadMenu';
-import AIInsightBadge from '../ai/AIInsightBadge';
 import ChartRenderer from '../charts/ChartRenderer';
 import TextCard from './TextCard';
 import api from '../../hooks/useQuery';
 import useFilterStore from '../../store/filterStore';
 import { useNavigate } from 'react-router-dom';
 import KpiTile from '../shared/KpiTile';
+import BrandedDialogTitle from '../shared/BrandedDialogTitle';
 
 // Stable stagger delay per card so simultaneous refreshes spread over ~800 ms.
 function cardStaggerMs(cardId) {
@@ -226,8 +226,6 @@ export default function DashboardCard({ card, editMode, onDelete, refreshKey }) 
           </Tooltip>
         )}
 
-        {results && <AIInsightBadge data={results.data} chartConfig={chartConfig} />}
-
         <Tooltip title="More options">
           <IconButton size="small" onClick={(e) => setMenuAnchor(e.currentTarget)}>
             <MoreVertIcon fontSize="small" />
@@ -299,14 +297,13 @@ Ask me anything about this card:
       />
 
       <Dialog open={removeConfirmOpen} onClose={() => setRemoveConfirmOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Remove card?</DialogTitle>
+        <BrandedDialogTitle label="Dashboard" title="Remove Card" onClose={() => setRemoveConfirmOpen(false)} />
         <DialogContent>
           <DialogContentText>
             This will remove the card from the dashboard. The underlying report is not affected.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRemoveConfirmOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={confirmRemove}>Remove</Button>
         </DialogActions>
       </Dialog>

@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Box, Stack, Chip, Popover, Typography, FormControl, InputLabel, Select, MenuItem, TextField, Switch, FormControlLabel, Divider, Button,
+  Box, Stack, Chip, Popover, Typography, TextField, Switch, FormControlLabel, Divider, Button,
 } from '@mui/material';
 import TuneIcon from '@mui/icons-material/Tune';
 import { displayValue } from './_displayValue';
 import { formatByColumn } from './_columnRules';
+import SearchSelect from '../shared/SearchSelect';
 
 const KIND_LABELS = { number: '#', currency: '$', percent: '%', date: '📅', text: 'A' };
 
@@ -143,23 +144,35 @@ export default function FormatStrip({ data = [], columns, columnFormats = {}, on
         anchorEl={anchor}
         onClose={close}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        slotProps={{ paper: { sx: { borderRadius: 3, mt: 0.75, boxShadow: '0 12px 32px rgba(15,23,42,0.16)' } } }}
       >
         {activeCol && spec && (
-          <Box sx={{ p: 2, width: 280 }}>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>{activeCol}</Typography>
-            <FormControl fullWidth size="small" sx={{ mb: 1.5 }}>
-              <InputLabel>Format as</InputLabel>
-              <Select label="Format as" value={spec.kind} onChange={(e) => update(activeCol, { kind: e.target.value })}>
-                <MenuItem value="number">Number</MenuItem>
-                <MenuItem value="currency">Currency</MenuItem>
-                <MenuItem value="percent">Percent</MenuItem>
-                <MenuItem value="date">Date</MenuItem>
-                <MenuItem value="text">Text (raw)</MenuItem>
-              </Select>
-            </FormControl>
+          <Box sx={{ p: 2.5, width: 300 }}>
+            <Stack spacing={2} useFlexGap>
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700 }}>
+                  Format column
+                </Typography>
+                <Typography variant="subtitle2" noWrap title={activeCol} sx={{ fontWeight: 700 }}>
+                  {activeCol}
+                </Typography>
+              </Box>
 
-            {(spec.kind === 'number' || spec.kind === 'currency' || spec.kind === 'percent') && (
-              <>
+              <SearchSelect
+                value={spec.kind}
+                onChange={(val) => update(activeCol, { kind: val })}
+                options={[
+                  { value: 'number', label: 'Number' },
+                  { value: 'currency', label: 'Currency' },
+                  { value: 'percent', label: 'Percent' },
+                  { value: 'date', label: 'Date' },
+                  { value: 'text', label: 'Text (raw)' },
+                ]}
+                label="Format as"
+                fullWidth
+              />
+
+              {(spec.kind === 'number' || spec.kind === 'currency' || spec.kind === 'percent') && (
                 <TextField
                   type="number"
                   label="Decimals"
@@ -167,67 +180,73 @@ export default function FormatStrip({ data = [], columns, columnFormats = {}, on
                   fullWidth
                   value={spec.decimals ?? (spec.kind === 'currency' ? 2 : 0)}
                   onChange={(e) => update(activeCol, { decimals: Math.max(0, Math.min(6, Number(e.target.value) || 0)) })}
-                  sx={{ mb: 1 }}
                 />
+              )}
+
+              {(spec.kind === 'number' || spec.kind === 'currency' || spec.kind === 'percent') && (
                 <FormControlLabel
+                  sx={{ m: 0 }}
                   control={<Switch size="small" checked={!!spec.compact} onChange={(e) => update(activeCol, { compact: e.target.checked })} />}
                   label={<Typography variant="body2">Compact (1.2K, 3.4M)</Typography>}
                 />
-              </>
-            )}
+              )}
 
-            {spec.kind === 'currency' && (
-              <TextField
-                label="Currency symbol"
-                size="small"
-                fullWidth
-                value={spec.currencySymbol || '$'}
-                onChange={(e) => update(activeCol, { currencySymbol: e.target.value })}
-                sx={{ mt: 1 }}
-              />
-            )}
+              {spec.kind === 'currency' && (
+                <TextField
+                  label="Currency symbol"
+                  size="small"
+                  fullWidth
+                  value={spec.currencySymbol || '$'}
+                  onChange={(e) => update(activeCol, { currencySymbol: e.target.value })}
+                />
+              )}
 
-            {spec.kind === 'percent' && (
-              <FormControlLabel
-                control={<Switch size="small" checked={!!spec.alreadyPercent} onChange={(e) => update(activeCol, { alreadyPercent: e.target.checked })} />}
-                label={<Typography variant="body2">Value is already a percent (don't ×100)</Typography>}
-              />
-            )}
+              {spec.kind === 'percent' && (
+                <FormControlLabel
+                  sx={{ m: 0 }}
+                  control={<Switch size="small" checked={!!spec.alreadyPercent} onChange={(e) => update(activeCol, { alreadyPercent: e.target.checked })} />}
+                  label={<Typography variant="body2">Value is already a percent (don't ×100)</Typography>}
+                />
+              )}
 
-            <Divider sx={{ my: 1.5 }} />
-            <Stack direction="row" spacing={1}>
-              <TextField label="Prefix" size="small" value={spec.prefix || ''} onChange={(e) => update(activeCol, { prefix: e.target.value })} />
-              <TextField label="Suffix" size="small" value={spec.suffix || ''} onChange={(e) => update(activeCol, { suffix: e.target.value })} />
+              <Divider />
+
+              <Stack direction="row" spacing={1.5}>
+                <TextField label="Prefix" size="small" fullWidth value={spec.prefix || ''} onChange={(e) => update(activeCol, { prefix: e.target.value })} />
+                <TextField label="Suffix" size="small" fullWidth value={spec.suffix || ''} onChange={(e) => update(activeCol, { suffix: e.target.value })} />
+              </Stack>
+
+              <Box sx={{ px: 1.5, py: 1, borderRadius: 2, bgcolor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                <Typography variant="caption" color="text.secondary">
+                  Preview: <strong style={{ color: '#1e293b' }}>{formatValue(data[0]?.[activeCol], { ...spec })}</strong>
+                </Typography>
+              </Box>
+
+              <Stack direction="row" justifyContent="space-between">
+                <Button
+                  size="small"
+                  onClick={() => { reset(activeCol); close(); }}
+                  sx={{
+                    borderRadius: 2, fontWeight: 600, textTransform: 'none',
+                    color: '#64748b', border: '1px solid #e2e8f0', bgcolor: '#f8fafc',
+                    '&:hover': { bgcolor: '#f1f5f9', borderColor: '#cbd5e1' },
+                  }}
+                >
+                  Reset
+                </Button>
+                <Button
+                  size="small"
+                  onClick={close}
+                  sx={{
+                    borderRadius: 2, fontWeight: 700, textTransform: 'none',
+                    bgcolor: '#14213d', color: '#fff', boxShadow: 'none',
+                    '&:hover': { bgcolor: '#0a1628', boxShadow: 'none' },
+                  }}
+                >
+                  Done
+                </Button>
+              </Stack>
             </Stack>
-
-            <Stack direction="row" justifyContent="space-between" sx={{ mt: 2 }}>
-              <Button
-                size="small"
-                onClick={() => { reset(activeCol); close(); }}
-                sx={{
-                  borderRadius: 2, fontWeight: 600, textTransform: 'none',
-                  color: '#64748b', border: '1px solid #e2e8f0', bgcolor: '#f8fafc',
-                  '&:hover': { bgcolor: '#f1f5f9', borderColor: '#cbd5e1' },
-                }}
-              >
-                Reset
-              </Button>
-              <Button
-                size="small"
-                onClick={close}
-                sx={{
-                  borderRadius: 2, fontWeight: 700, textTransform: 'none',
-                  bgcolor: '#14213d', color: '#fff', boxShadow: 'none',
-                  '&:hover': { bgcolor: '#0a1628', boxShadow: 'none' },
-                }}
-              >
-                Done
-              </Button>
-            </Stack>
-
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
-              Preview: <strong>{formatValue(data[0]?.[activeCol], { ...spec })}</strong>
-            </Typography>
           </Box>
         )}
       </Popover>

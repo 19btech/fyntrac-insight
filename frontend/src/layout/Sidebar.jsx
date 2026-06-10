@@ -5,13 +5,15 @@ import {
   Tooltip, Divider, Typography, Stack, Chip, IconButton,
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/DashboardOutlined';
-import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswerOutlined';
+import QuestionAnswerIcon from '@mui/icons-material/TableChartOutlined';
 import ScienceIcon from '@mui/icons-material/ScienceOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import BarChartIcon from '@mui/icons-material/BarChartOutlined';
 import SettingsIcon from '@mui/icons-material/SettingsOutlined';
 import SpeedIcon from '@mui/icons-material/SpeedOutlined';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrowsOutlined';
+import ChangeHistoryIcon from '@mui/icons-material/ChangeHistoryOutlined';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
@@ -21,11 +23,18 @@ const MAIN_NAV = [
   { label: 'Reports',         icon: <QuestionAnswerIcon fontSize="small" />, path: '/reports' },
   { label: 'KPIs',            icon: <SpeedIcon fontSize="small" />,          path: '/metrics' },
   { label: 'Reconciliations', icon: <CompareArrowsIcon fontSize="small" />,  path: '/recons' },
+  // SQL Lab opens as a global modal (not a route) — dispatch the same kind of
+  // event the Report / Dataset modals use.
+  { label: 'Prism',           icon: <ChangeHistoryIcon fontSize="small" />, onClick: () => window.dispatchEvent(new CustomEvent('fyntrac:open:sqllab')) },
 ];
 
 const BOTTOM_NAV = [
   { label: 'Trash',           icon: <DeleteOutlineIcon fontSize="small" />, path: '/trash' },
-  { label: 'Usage Analytics', icon: <BarChartIcon fontSize="small" />,      path: '/admin' },
+  // Ask Insight opens the assistant drawer (mounted globally in AppShell).
+  { label: 'Ask Insight',     icon: <AutoAwesomeIcon fontSize="small" />,   onClick: () => window.dispatchEvent(new CustomEvent('fyntrac:ai:open')) },
+  // Usage Analytics is hidden from the nav for now (route + page still work at
+  // /admin); restore this entry to surface it again.
+  // { label: 'Usage Analytics', icon: <BarChartIcon fontSize="small" />,      path: '/admin' },
 ];
 
 // Token values from theme.ts
@@ -38,11 +47,61 @@ const SLATE_700    = '#334155'; // tokens.brand.slate700    = SIDEBAR_TEXT
 const INDIGO       = '#6366f1'; // tokens.brand.indigo      = SIDEBAR_ACCENT
 const BLACK        = '#14213d'; // tokens.brand.black
 
+// Defined at module scope (NOT inside Sidebar) so its component identity is
+// stable across re-renders. If this lived inside Sidebar, every navigation
+// would re-create the function, forcing React to unmount/remount each
+// ListItemButton — which kills the TouchRipple animation mid-grow (the
+// ripple only "completed" on a long press, before navigate fired).
+const NavItem = ({ label, icon, path, active, open, onNavigate, onClick }) => {
+  const button = (
+    <ListItemButton
+      onClick={() => (onClick ? onClick() : onNavigate(path))}
+      sx={{
+        borderRadius: '12px',
+        mb: 0.25,
+        px: open ? 1.75 : 1.25,
+        py: 1,
+        color: active ? ACCENT : SLATE_700,
+        bgcolor: active ? ACCENT_BG : 'transparent',
+        '&:hover': {
+          bgcolor: active ? ACCENT_BG : SLATE_100,
+          color: active ? ACCENT : BLACK,
+        },
+        transition: 'background-color 160ms, color 160ms',
+        justifyContent: open ? 'flex-start' : 'center',
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
+      <ListItemIcon
+        sx={{
+          color: active ? INDIGO : SLATE_500,
+          minWidth: 0,
+          justifyContent: 'center',
+        }}
+      >
+        {icon}
+      </ListItemIcon>
+      {open && (
+        <ListItemText
+          primary={label}
+          primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: active ? 700 : 500, fontStyle: 'normal', color: 'inherit' }}
+          sx={{ pl: '14px' }}
+        />
+      )}
+    </ListItemButton>
+  );
+  return open ? button : (
+    <Tooltip title={label} placement="right"><span>{button}</span></Tooltip>
+  );
+};
+
 export default function Sidebar({ open, width, onToggle, onSettingsClick }) {
   const navigate = useNavigate();
   const { pathname, search } = useLocation();
 
   const isActive = (path) => {
+    if (!path) return false; // modal-trigger items (e.g. SQL Lab) have no route
     const [basePath, query = ''] = path.split('?');
     if (query) {
       const current = new URLSearchParams(search);
@@ -54,45 +113,6 @@ export default function Sidebar({ open, width, onToggle, onSettingsClick }) {
       return true;
     }
     return pathname === basePath || pathname.startsWith(basePath + '/');
-  };
-
-  const NavItem = ({ label, icon, path }) => {
-    const active = isActive(path);
-    const button = (
-      <ListItemButton
-        onClick={() => navigate(path)}
-        sx={{
-          borderRadius: '12px',
-          mb: 0.25,
-          px: open ? 1.75 : 1.25,
-          py: 1,
-          color: active ? ACCENT : SLATE_700,
-          bgcolor: active ? ACCENT_BG : 'transparent',
-          '&:hover': { bgcolor: SLATE_100, color: BLACK },
-          transition: 'background-color 160ms, color 160ms',
-          justifyContent: open ? 'flex-start' : 'center',
-        }}
-      >
-        <ListItemIcon
-          sx={{
-            color: active ? INDIGO : SLATE_500,
-            minWidth: open ? 32 : 'auto',
-            justifyContent: 'center',
-          }}
-        >
-          {icon}
-        </ListItemIcon>
-        {open && (
-          <ListItemText
-            primary={label}
-            primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: active ? 600 : 500, fontStyle: 'normal', color: 'inherit' }}
-          />
-        )}
-      </ListItemButton>
-    );
-    return open ? button : (
-      <Tooltip key={path} title={label} placement="right"><span>{button}</span></Tooltip>
-    );
   };
 
   return (
@@ -119,7 +139,7 @@ export default function Sidebar({ open, width, onToggle, onSettingsClick }) {
           size="small"
           sx={{
             position: 'absolute',
-            top: 56,
+            top: 52,
             right: -12,
             zIndex: 1201,
             width: 24,
@@ -186,14 +206,20 @@ export default function Sidebar({ open, width, onToggle, onSettingsClick }) {
 
       {/* ── Main nav ── */}
       <List sx={{ px: 1.5, mt: 2, flex: 1 }}>
-        {MAIN_NAV.map((item) => <NavItem key={item.label} {...item} />)}
+        {MAIN_NAV.map((item) => (
+          <NavItem key={item.label} {...item} active={isActive(item.path)} open={open} onNavigate={navigate} />
+        ))}
+        {/* Divider directly under Prism (the last main item). */}
+        <Divider sx={{ borderColor: SLATE_200, mx: 1, my: 1 }} />
       </List>
 
       <Divider sx={{ borderColor: SLATE_200 }} />
 
       {/* ── Bottom nav ── */}
       <List sx={{ px: 1.5, pb: 0, pt: 0.5 }}>
-        {BOTTOM_NAV.map((item) => <NavItem key={item.label} {...item} />)}
+        {BOTTOM_NAV.map((item) => (
+          <NavItem key={item.label} {...item} active={isActive(item.path)} open={open} onNavigate={navigate} />
+        ))}
       </List>
 
       {/* ── Settings ── */}
@@ -213,12 +239,13 @@ export default function Sidebar({ open, width, onToggle, onSettingsClick }) {
               justifyContent: 'flex-start',
             }}
           >
-            <ListItemIcon sx={{ color: SLATE_500, minWidth: 32, justifyContent: 'center' }}>
+            <ListItemIcon sx={{ color: SLATE_500, minWidth: 0, justifyContent: 'center' }}>
               <SettingsIcon fontSize="small" />
             </ListItemIcon>
             <ListItemText
               primary="AI Settings"
               primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 500, fontStyle: 'normal', color: 'inherit' }}
+              sx={{ pl: '14px' }}
             />
           </ListItemButton>
         ) : (

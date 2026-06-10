@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Box, Stack, Typography, IconButton, TextField, Select, MenuItem, FormControl,
-  InputLabel, Chip, Button, Tooltip, Paper, Popover, List, ListItemButton,
+  Box, Stack, Typography, IconButton, TextField,
+  MenuItem, Chip, Button, Tooltip, Paper, Popover, List, ListItemButton,
   ListItemIcon, ListItemText, Divider,
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -23,6 +23,7 @@ import FilterBuilder from '../query-builder/FilterBuilder';
 import SummarizePanel from '../query-builder/SummarizePanel';
 import FieldPicker from '../query-builder/FieldPicker';
 import { STEP_LABELS, describeStep, parseFormula } from './compileSteps';
+import SearchSelect from '../shared/SearchSelect';
 
 // Module-level cache shared across all StepCard instances in the same session.
 // Avoids duplicate $sample-based schema inference calls when multiple step
@@ -98,7 +99,7 @@ const KIND_COLOR = {
   summarize: '#fce7f3', sort: '#dcfce7', keepTopN: '#fee2e2', chooseColumns: '#e0f2fe',
 };
 
-export function StepCard({ step, index, total, sourceCollection, onChange, onDelete, rowCount, defaultExpanded = false, precedingSteps = [] }) {
+export function StepCard({ step, index, total, sourceCollection, onChange, onDelete, onSaved, rowCount, defaultExpanded = false, precedingSteps = [] }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   // All field edits accumulate in a local draft. Only "Save step" commits to the parent.
@@ -187,7 +188,7 @@ export function StepCard({ step, index, total, sourceCollection, onChange, onDel
             <Button
               size="small"
               disabled={!isDirty}
-              onClick={() => onChange(draft)}
+              onClick={() => { onChange(draft); setExpanded(false); onSaved?.(); }}
               sx={{
                 borderRadius: 2, fontWeight: 700, textTransform: 'none',
                 bgcolor: '#14213d', color: '#fff', boxShadow: 'none',
@@ -212,7 +213,7 @@ function StepBody({ step, sourceCollection, update, precedingSteps }) {
         <FilterBuilder
           collection={sourceCollection}
           filters={step.filters || []}
-          onChange={(filters) => update({ filters })}precedingSteps={precedingSteps} 
+          onChange={(filters) => update({ filters })}
           extraFields={filterDerivedCols}
         />
       );
@@ -447,27 +448,22 @@ function JoinPanel({ join, index, total, sourceCollection, collections, localFie
 
       {/* Foreign collection */}
       <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
-        <FormControl size="small" sx={{ minWidth: 240 }}>
-          <InputLabel>Combine with</InputLabel>
-          <Select
-            label="Combine with"
-            value={join.from || ''}
-            onChange={(e) => onChange({
-              from: e.target.value,
-              as: join.as || e.target.value,
-              // Reset fields and conditions whenever the foreign table changes
-              // so the auto-suggest can pick up the new table's keys. Without
-              // this, stale conditions referencing the old table's fields remain
-              // and the join silently produces wrong / empty results.
-              fields: [],
-              conditions: [{ localField: '', foreignField: '' }],
-            })}
-          >
-            {collections.filter((c) => c !== sourceCollection).map((c) => (
-              <MenuItem key={c} value={c}>{c}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        <SearchSelect
+          label="Combine with"
+          value={join.from || ''}
+          onChange={(val) => onChange({
+            from: val,
+            as: join.as || val,
+            // Reset fields and conditions whenever the foreign table changes
+            // so the auto-suggest can pick up the new table's keys. Without
+            // this, stale conditions referencing the old table's fields remain
+            // and the join silently produces wrong / empty results.
+            fields: [],
+            conditions: [{ localField: '', foreignField: '' }],
+          })}
+          options={collections.filter((c) => c !== sourceCollection).map((c) => ({ value: c, label: c }))}
+          width={240}
+        />
       </Box>
 
       {/* Conditions (compound key) */}
@@ -477,27 +473,22 @@ function JoinPanel({ join, index, total, sourceCollection, collections, localFie
             <Typography variant="caption" color="text.secondary" sx={{ minWidth: 56 }}>
               {i === 0 ? 'where' : 'and'}
             </Typography>
-            <FormControl size="small" sx={{ minWidth: 200 }}>
-              <InputLabel>This.field</InputLabel>
-              <Select
-                label="This.field"
-                value={cond.localField || ''}
-                onChange={(e) => updateCondition(i, { localField: e.target.value })}
-              >
-                {localFields.map((f) => <MenuItem key={f.name} value={f.name}>{f.name}</MenuItem>)}
-              </Select>
-            </FormControl>
+            <SearchSelect
+              label="This.field"
+              value={cond.localField || ''}
+              onChange={(val) => updateCondition(i, { localField: val })}
+              options={localFields.map((f) => ({ value: f.name, label: f.name }))}
+              width={240}
+            />
             <Typography variant="body2">=</Typography>
-            <FormControl size="small" sx={{ minWidth: 200 }} disabled={!join.from}>
-              <InputLabel>Other.field</InputLabel>
-              <Select
-                label="Other.field"
-                value={cond.foreignField || ''}
-                onChange={(e) => updateCondition(i, { foreignField: e.target.value })}
-              >
-                {foreignFields.map((f) => <MenuItem key={f.name} value={f.name}>{f.name}</MenuItem>)}
-              </Select>
-            </FormControl>
+            <SearchSelect
+              label="Other.field"
+              value={cond.foreignField || ''}
+              onChange={(val) => updateCondition(i, { foreignField: val })}
+              options={foreignFields.map((f) => ({ value: f.name, label: f.name }))}
+              width={240}
+              disabled={!join.from}
+            />
             <Tooltip title="Remove condition">
               <span>
                 <IconButton
@@ -561,27 +552,33 @@ function JoinPanel({ join, index, total, sourceCollection, collections, localFie
       )}
 
       {/* Save as / relationship / unmatched */}
-      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
         <TextField
           size="small" label="Save as column" value={join.as || ''}
           onChange={(e) => onChange({ as: e.target.value })}
-          sx={{ minWidth: 220 }}
+          fullWidth
           helperText="Combined fields appear under this name (e.g. customer.name)"
         />
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel>Relationship</InputLabel>
-          <Select label="Relationship" value={join.relationship || 'one'} onChange={(e) => onChange({ relationship: e.target.value })}>
+        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+          <TextField
+            select size="small" label="Relationship"
+            value={join.relationship || 'one'}
+            onChange={(e) => onChange({ relationship: e.target.value })}
+            sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { borderRadius: '16px' } }}
+          >
             <MenuItem value="one">One match per row</MenuItem>
             <MenuItem value="many">Many matches per row</MenuItem>
-          </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel>Unmatched rows</InputLabel>
-          <Select label="Unmatched rows" value={join.unmatched || 'keep'} onChange={(e) => onChange({ unmatched: e.target.value })}>
+          </TextField>
+          <TextField
+            select size="small" label="Unmatched rows"
+            value={join.unmatched || 'keep'}
+            onChange={(e) => onChange({ unmatched: e.target.value })}
+            sx={{ flex: 1, minWidth: 200, '& .MuiOutlinedInput-root': { borderRadius: '16px' } }}
+          >
             <MenuItem value="keep">Keep them (left join)</MenuItem>
             <MenuItem value="drop">Drop them (inner join)</MenuItem>
-          </Select>
-        </FormControl>
+          </TextField>
+        </Box>
       </Box>
     </Box>
   );
@@ -861,13 +858,17 @@ function ChooseColumnsEditor({ step, sourceCollection, update, precedingSteps })
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-      <FormControl size="small" sx={{ maxWidth: 240 }}>
-        <InputLabel>Mode</InputLabel>
-        <Select label="Mode" value={step.mode || 'keep'} onChange={(e) => update({ mode: e.target.value })}>
-          <MenuItem value="keep">Keep only selected</MenuItem>
-          <MenuItem value="drop">Drop selected</MenuItem>
-        </Select>
-      </FormControl>
+      <TextField
+        select
+        size="small"
+        label="Mode"
+        value={step.mode || 'keep'}
+        onChange={(e) => update({ mode: e.target.value })}
+        sx={{ width: 240, '& .MuiOutlinedInput-root': { borderRadius: '16px' } }}
+      >
+        <MenuItem value="keep">Keep only selected</MenuItem>
+        <MenuItem value="drop">Drop selected</MenuItem>
+      </TextField>
       {activeGroups.map(([grp, names]) => (
         <Box key={grp}>
           {activeGroups.length > 1 && (
@@ -934,13 +935,15 @@ function SortEditor({ step, sourceCollection, update, precedingSteps }) {
             label="Field"
             extraFields={extraFields}
           />
-          <FormControl size="small" sx={{ minWidth: 140 }}>
-            <InputLabel>Direction</InputLabel>
-            <Select label="Direction" value={row.dir || 'desc'} onChange={(e) => updateRow(i, { dir: e.target.value })}>
-              <MenuItem value="asc">Ascending</MenuItem>
-              <MenuItem value="desc">Descending</MenuItem>
-            </Select>
-          </FormControl>
+          <TextField
+            select size="small" label="Direction"
+            value={row.dir || 'desc'}
+            onChange={(e) => updateRow(i, { dir: e.target.value })}
+            sx={{ width: 140, '& .MuiOutlinedInput-root': { borderRadius: '16px' } }}
+          >
+            <MenuItem value="asc">Ascending</MenuItem>
+            <MenuItem value="desc">Descending</MenuItem>
+          </TextField>
           <Tooltip title="Remove sort">
             <span>
               <IconButton
@@ -1032,7 +1035,7 @@ export function AddStepButton({ onAdd, existingKinds = [] }) {
 
   return (
     <>
-      <Box sx={{ display: 'flex', justifyContent: 'center', my: 1.5 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', my: 1.5 }}>
         <Tooltip title="Add a step" placement="top">
           <IconButton
             onClick={(e) => setAnchor(e.currentTarget)}

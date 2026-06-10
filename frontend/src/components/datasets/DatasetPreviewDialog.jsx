@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Dialog, DialogContent, DialogTitle, DialogActions, DialogContentText,
   IconButton, Typography, Stack, Chip,
-  Tabs, Tab, Box, Button, Divider, Skeleton, Switch, FormControlLabel,
-  TextField, FormControl, InputLabel, Select, MenuItem, List, ListItem,
+  Tabs, Tab, Box, Button, Divider, Skeleton,
+  TextField, List, ListItem,
   ListItemText, CircularProgress, Tooltip, Snackbar, Alert, Paper,
+  ToggleButtonGroup, ToggleButton,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import HighlightOffOutlinedIcon from '@mui/icons-material/HighlightOffOutlined';
@@ -12,15 +13,14 @@ import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import SaveIcon from '@mui/icons-material/Save';
 import EditIcon from '@mui/icons-material/Edit';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import HistoryIcon from '@mui/icons-material/History';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import StorageIcon from '@mui/icons-material/Storage';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import ViewColumnIcon from '@mui/icons-material/ViewColumn';
 import CodeIcon from '@mui/icons-material/Code';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import RestoreIcon from '@mui/icons-material/Restore';
 import api from '../../hooks/useQuery';
@@ -29,6 +29,10 @@ import { isHiddenColumn } from '../charts/_columnRules';
 import { compileSteps } from '../dataset-builder/compileSteps';
 import { StepCard, StepArrow, AddStepButton } from '../dataset-builder/StepCard';
 import useDatasetContextStore from '../../store/datasetContextStore';
+import AppToast from '../shared/AppToast';
+import BrandedDialogTitle from '../shared/BrandedDialogTitle';
+import SearchSelect from '../shared/SearchSelect';
+import restoreButtonSx from '../shared/restoreButtonSx';
 
 /**
  * Full-bleed modal for viewing AND editing a Dataset. Mirrors the shape of
@@ -42,7 +46,6 @@ import useDatasetContextStore from '../../store/datasetContextStore';
  *   - Preview     : live result of the compiled pipeline
  *   - Schema      : output columns, hide toggles, descriptions
  *   - Lineage     : downstream reports/dashboards that depend on this
- *   - Pipeline    : compiled MongoDB JSON for the curious / debugging
  *   - History     : version snapshots (best-effort; falls back gracefully)
  *
  * Save persists name, description, source, steps, columnOrder, verified
@@ -53,7 +56,6 @@ const TABS = [
   { key: 'preview', label: 'Preview' },
   { key: 'schema', label: 'Schema' },
   { key: 'lineage', label: 'Lineage' },
-  { key: 'pipeline', label: 'Pipeline' },
   { key: 'history', label: 'History' },
 ];
 
@@ -78,6 +80,18 @@ export default function DatasetPreviewDialog({
   const [columnOrder, setColumnOrder] = useState([]);
   const [verified, setVerified] = useState(false);
 
+  // Build mode: 'steps' (visual step stack) or 'savedQuery' (a Prism SQL query).
+  // Only one is active at a time; both configs are retained when switching.
+  const [sourceMode, setSourceMode] = useState('steps');
+  const [savedQueryId, setSavedQueryId] = useState(null);
+  const [savedQuerySql, setSavedQuerySql] = useState('');
+  const [savedQueryName, setSavedQueryName] = useState('');
+  const [savedQueries, setSavedQueries] = useState([]);
+  // Pending selection awaiting confirmation when its collection differs.
+  const [mismatch, setMismatch] = useState(null); // { query, datasetCollection }
+  // Target build mode awaiting confirmation (only one mode may be active).
+  const [pendingMode, setPendingMode] = useState(null); // 'steps' | 'savedQuery'
+
   // Sample mode
   const [sampleMode, setSampleMode] = useState(true);
   const [sampleSize, setSampleSize] = useState(10000);
@@ -99,6 +113,7 @@ export default function DatasetPreviewDialog({
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState('');
   const [metaEditing, setMetaEditing] = useState(false);
+  const [nameError, setNameError] = useState(false);
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
 
@@ -113,30 +128,37 @@ export default function DatasetPreviewDialog({
     steps: vals.steps || [],
     columnOrder: vals.columnOrder || [],
     verified: !!vals.verified,
+    sourceMode: vals.sourceMode || 'steps',
+    savedQueryId: vals.savedQueryId || null,
+    savedQuerySql: vals.savedQuerySql || '',
   });
 
-  // Load the available source collections list once per open.
+  // Load the available source collections + Prism saved queries once per open.
   useEffect(() => {
     if (!open) return;
     api.get('/schema/collections').then((r) => setCollections(r.data || [])).catch(() => setCollections([]));
+    api.get('/query/saved').then((r) => setSavedQueries(r.data?.queries || [])).catch(() => setSavedQueries([]));
   }, [open]);
 
   // Hydrate when opened. Either from /models/:id, or with a starter template.
   useEffect(() => {
     if (!open) return;
-    setTab('build'); setError(''); setDirty(false);
+    setTab('build'); setError(''); setDirty(false); setNameError(false);
     setPreviewData(null); setStepCounts([]); setLineage(null); setVersions([]);
+    setMismatch(null);
 
     if (isNew || !datasetId) {
       setActiveId(null);
       setName(''); setDescription(''); setSourceCollection('');
       setColumnOrder([]); setVerified(false);
+      setSourceMode('steps'); setSavedQueryId(null); setSavedQuerySql(''); setSavedQueryName('');
       const seeded = seedSteps(starter);
       setSteps(seeded);
       setMetaEditing(true);
       baselineRef.current = snapshot({
         name: '', description: '', sourceCollection: '',
         steps: seeded, columnOrder: [], verified: false,
+        sourceMode: 'steps', savedQueryId: null, savedQuerySql: '',
       });
       return;
     }
@@ -150,9 +172,14 @@ export default function DatasetPreviewDialog({
         const sts = Array.isArray(data.steps) ? data.steps : [];
         const co = Array.isArray(data.columnOrder) ? data.columnOrder : [];
         const v = !!data.verified;
+        const mode = data.sourceMode === 'savedQuery' ? 'savedQuery' : 'steps';
+        const sqId = data.savedQueryId || null;
+        const sqSql = data.savedQuerySql || '';
+        const sqName = data.savedQueryName || '';
         setName(nm); setDescription(desc); setSourceCollection(src);
         setSteps(sts); setColumnOrder(co); setVerified(v);
-        baselineRef.current = snapshot({ name: nm, description: desc, sourceCollection: src, steps: sts, columnOrder: co, verified: v });
+        setSourceMode(mode); setSavedQueryId(sqId); setSavedQuerySql(sqSql); setSavedQueryName(sqName);
+        baselineRef.current = snapshot({ name: nm, description: desc, sourceCollection: src, steps: sts, columnOrder: co, verified: v, sourceMode: mode, savedQueryId: sqId, savedQuerySql: sqSql });
       })
       .catch((e) => setError(e.response?.data?.error || e.message))
       .finally(() => setLoading(false));
@@ -163,9 +190,9 @@ export default function DatasetPreviewDialog({
   // Dirty by snapshot comparison (same pattern as ReportPreviewDialog).
   useEffect(() => {
     if (!baselineRef.current) return;
-    const current = snapshot({ name, description, sourceCollection, steps, columnOrder, verified });
+    const current = snapshot({ name, description, sourceCollection, steps, columnOrder, verified, sourceMode, savedQueryId, savedQuerySql });
     setDirty(current !== baselineRef.current);
-  }, [name, description, sourceCollection, steps, columnOrder, verified]);
+  }, [name, description, sourceCollection, steps, columnOrder, verified, sourceMode, savedQueryId, savedQuerySql]);
 
   // No auto-run: preview only fires on explicit "Run preview" or "Re-run" button click.
 
@@ -191,19 +218,29 @@ export default function DatasetPreviewDialog({
   }, [steps]);
 
   const runPreview = async (showToast = false) => {
-    if (!sourceCollection) return;
     setTab('preview');
     setError(''); setRunning(true);
     try {
-      const { data } = await api.post('/models/preview-steps', {
-        sourceCollection,
-        steps,
-        sampleSize: sampleMode ? sampleSize : 0,
-        previewLimit: 100,
-      });
-      setPreviewData(data);
-      setStepCounts(data.stepCounts || []);
-      if (showToast) setSavedMsg(`Preview ready — ${data.data?.length || 0} rows · ${data.executionTime ?? 0}ms`);
+      if (sourceMode === 'savedQuery') {
+        if (!savedQuerySql) { setRunning(false); return; }
+        // Preview a saved-query dataset by running its SQL through Prism.
+        const { data } = await api.post('/query/sql', { sql: savedQuerySql, page: 0, pageSize: 100 });
+        const shaped = { data: data.rows || [], columns: data.columns || [], executionTime: data.executionTime };
+        setPreviewData(shaped);
+        setStepCounts([]);
+        if (showToast) setSavedMsg(`Preview ready — ${shaped.data.length} rows · ${shaped.executionTime ?? 0}ms`);
+      } else {
+        if (!sourceCollection) { setRunning(false); return; }
+        const { data } = await api.post('/models/preview-steps', {
+          sourceCollection,
+          steps,
+          sampleSize: sampleMode ? sampleSize : 0,
+          previewLimit: 100,
+        });
+        setPreviewData(data);
+        setStepCounts(data.stepCounts || []);
+        if (showToast) setSavedMsg(`Preview ready — ${data.data?.length || 0} rows · ${data.executionTime ?? 0}ms`);
+      }
     } catch (e) {
       setError(e.response?.data?.error || e.message);
     } finally {
@@ -211,13 +248,71 @@ export default function DatasetPreviewDialog({
     }
   };
 
+  // ── Build-mode helpers ──────────────────────────────────────────────────────
+  // Only one mode is ever active. Switching away from a mode that holds work
+  // asks for confirmation first, then: steps -> query disables all steps;
+  // query -> steps clears the selected query (and re-enables the steps).
+  const applyMode = (mode) => {
+    if (mode === 'savedQuery') {
+      setSteps((prev) => prev.map((s) => ({ ...s, disabled: true })));
+    } else {
+      setSavedQueryId(null); setSavedQuerySql(''); setSavedQueryName('');
+      setSteps((prev) => prev.map((s) => ({ ...s, disabled: false })));
+    }
+    setSourceMode(mode);
+    setPreviewData(null);
+    setError('');
+  };
+
+  const switchMode = (_e, mode) => {
+    if (!mode || mode === sourceMode) return;
+    const losingQuery = mode === 'steps' && !!savedQueryId;
+    const losingSteps = mode === 'savedQuery' && steps.length > 0;
+    if (losingQuery || losingSteps) {
+      setPendingMode(mode); // confirm before discarding the other side's work
+    } else {
+      applyMode(mode);
+    }
+  };
+
+  const applySavedQuery = (q, { replaceSource = false } = {}) => {
+    setSavedQueryId(q._id);
+    setSavedQuerySql(q.sql);
+    setSavedQueryName(q.name);
+    // Adopt the query's primary collection as the dataset source when forced
+    // (mismatch confirmed) or when no source has been picked yet.
+    if (q.primaryCollection && (replaceSource || !sourceCollection)) {
+      setSourceCollection(q.primaryCollection);
+    }
+    setPreviewData(null);
+    setError('');
+  };
+
+  // Selecting a query whose primary collection differs from the dataset's
+  // source table prompts a confirm; otherwise it applies directly.
+  const handleSelectSavedQuery = (id) => {
+    if (!id) { setSavedQueryId(null); setSavedQuerySql(''); setSavedQueryName(''); setPreviewData(null); return; }
+    const q = savedQueries.find((x) => String(x._id) === String(id));
+    if (!q) return;
+    const qCol = (q.primaryCollection || '').toLowerCase();
+    const dsCol = (sourceCollection || '').toLowerCase();
+    if (qCol && dsCol && qCol !== dsCol) {
+      setMismatch({ query: q, datasetCollection: sourceCollection });
+    } else {
+      applySavedQuery(q);
+    }
+  };
+
   const save = async () => {
-    if (!name?.trim()) { setError('Dataset name is required'); setMetaEditing(true); return; }
-    if (!description?.trim()) { setError('Dataset description is required'); setMetaEditing(true); return; }
+    if (!name?.trim()) { setNameError(true); setMetaEditing(true); return; }
     if (!sourceCollection) { setError('Pick a source table first'); return; }
+    if (sourceMode === 'savedQuery' && !savedQuerySql) { setError('Select a Prism query first'); return; }
     setSaving(true); setError('');
     try {
-      const payload = { name, description, sourceCollection, steps, columnOrder, verified };
+      const payload = {
+        name, description, sourceCollection, steps, columnOrder, verified,
+        sourceMode, savedQueryId, savedQuerySql, savedQueryName,
+      };
       let data;
       if (activeId) {
         ({ data } = await api.put(`/models/${activeId}`, payload));
@@ -225,7 +320,7 @@ export default function DatasetPreviewDialog({
         ({ data } = await api.post('/models', payload));
         setActiveId(data._id);
       }
-      baselineRef.current = snapshot({ name, description, sourceCollection, steps, columnOrder, verified });
+      baselineRef.current = snapshot({ name, description, sourceCollection, steps, columnOrder, verified, sourceMode, savedQueryId, savedQuerySql });
       setDirty(false);
       setMetaEditing(false);
       setSavedMsg('Dataset saved successfully');
@@ -243,14 +338,9 @@ export default function DatasetPreviewDialog({
     const rowCount = previewData?.data?.length ?? 0;
     window.dispatchEvent(new CustomEvent('fyntrac:ai:open', {
       detail: {
-        prompt: `I have the dataset "${name || 'Untitled'}" open in front of me.${sourceCollection ? ` It reads from the "${sourceCollection}" table.` : ''}${steps.length ? ` It has ${steps.length} build step(s): ${steps.map((s, i) => `${i + 1}. ${s.kind}`).join(', ')}.` : ''} The preview shows ${rowCount} rows with columns: ${colList}.
+        prompt: `Analyse the data shown in the preview grid of the dataset "${name || 'Untitled'}".${sourceCollection ? ` Source table: "${sourceCollection}".` : ''} The grid has ${rowCount} row(s) with columns: ${colList}.
 
-I can help you with:
-1. How each tab and step in this modal works
-2. Questions like "how do I filter by date?" or "how do I group by account?"
-3. Data analysis — just ask me something like "what's the sum of amount?", "which row has the highest value?", or "how many unique accounts are there?"
-
-What would you like to know?`,
+Give me the key insights from this data — notable totals/sums, averages, the highest and lowest values, and any outliers or patterns — citing specific numbers in **bold**. Base it on the rows in front of me, keep it concise, and finish with a couple of useful follow-up questions I could ask.`,
       },
     }));
   };
@@ -356,9 +446,9 @@ What would you like to know?`,
               label="Dataset"
               size="small"
               sx={{
-                height: 18, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
-                textTransform: 'uppercase', bgcolor: alpha('#3f51b5', 0.1),
-                color: '#3f51b5', mb: 0.5, borderRadius: 1,
+                height: 20, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
+                textTransform: 'uppercase', bgcolor: 'rgba(99, 102, 241, 0.1)',
+                color: '#6366F1', mb: 0.5, borderRadius: '8px',
               }}
             />
             <Stack direction="row" spacing={1} alignItems="center">
@@ -449,8 +539,11 @@ What would you like to know?`,
                 {metaEditing ? (
                   <TextField
                     size="small" fullWidth autoFocus
-                    value={name} onChange={(e) => setName(e.target.value)}
+                    value={name}
+                    onChange={(e) => { setName(e.target.value); if (nameError) setNameError(false); }}
                     placeholder="Dataset name"
+                    error={nameError}
+                    helperText={nameError ? 'Dataset name is required' : ''}
                   />
                 ) : (
                   <Typography variant="body1" sx={{ fontWeight: 600, color: 'text.secondary' }}>
@@ -466,9 +559,26 @@ What would you like to know?`,
                     size="small" fullWidth multiline minRows={2} maxRows={5}
                     value={description} onChange={(e) => setDescription(e.target.value)}
                     placeholder="What is this dataset for?"
+                    inputProps={{ maxLength: 160 }}
+                    helperText={`${(description || '').length}/160`}
+                    FormHelperTextProps={{ sx: { textAlign: 'right', mx: 0 } }}
                   />
                 ) : (
-                  <Typography variant="body2" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>
+                  <Typography
+                    variant="body2"
+                    title={description || undefined}
+                    sx={{
+                      color: 'text.secondary',
+                      width: '100%',
+                      whiteSpace: 'pre-wrap',
+                      overflowWrap: 'anywhere',
+                      wordBreak: 'break-word',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 6,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                    }}
+                  >
                     {description || <Box component="span" sx={{ fontStyle: 'italic', color: 'text.disabled' }}>No description</Box>}
                   </Typography>
                 )}
@@ -476,25 +586,22 @@ What would you like to know?`,
 
               <Divider />
 
-              <Stack spacing={2}>
+              <Stack spacing={1}>
                 <Typography variant="body2" fontWeight={700} color="#0f172a">Source</Typography>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>Source table</InputLabel>
-                  <Select
-                    label="Source table"
-                    value={sourceCollection}
-                    onChange={(e) => setSourceCollection(e.target.value)}
-                  >
-                    {collections.map((c) => (
-                      <MenuItem key={c} value={c}>
-                        <Stack direction="row" alignItems="center" spacing={1}>
-                          <StorageIcon sx={{ fontSize: 14, opacity: 0.6 }} />
-                          <span>{c}</span>
-                        </Stack>
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                <SearchSelect
+                  value={sourceCollection}
+                  onChange={setSourceCollection}
+                  options={collections.map((c) => ({ value: c, label: c }))}
+                  label="Source table"
+                  fullWidth
+                  disabled={sourceMode === 'savedQuery'}
+                />
+                {sourceMode === 'savedQuery' && (
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <CodeIcon sx={{ fontSize: 13 }} />
+                    Set by the Prism query. Switch to “Build steps” to change it.
+                  </Typography>
+                )}
               </Stack>
 
               <Divider />
@@ -523,31 +630,6 @@ What would you like to know?`,
                     {verified ? 'Certified' : 'Mark as certified'}
                   </Typography>
                 </Box>
-              </Stack>
-
-              <Divider />
-
-              <Stack spacing={2}>
-                <Typography variant="body2" fontWeight={700} color="#0f172a">Sampling</Typography>
-                <FormControlLabel
-                  control={<Switch size="small" checked={sampleMode} onChange={(e) => setSampleMode(e.target.checked)} />}
-                  label={<Typography variant="body2">Sample mode</Typography>}
-                  sx={{ m: 0 }}
-                />
-                {sampleMode && (
-                  <FormControl size="small" fullWidth>
-                    <InputLabel>Sample size</InputLabel>
-                    <Select
-                      label="Sample size"
-                      value={sampleSize}
-                      onChange={(e) => setSampleSize(Number(e.target.value))}
-                    >
-                      {[1000, 5000, 10000, 25000, 50000].map((n) => (
-                        <MenuItem key={n} value={n}>{n.toLocaleString()} rows</MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                )}
               </Stack>
 
               <Divider />
@@ -582,9 +664,9 @@ What would you like to know?`,
                 </Button>
                 <Button
                   size="small" variant="contained" fullWidth
-                  startIcon={saving ? <CircularProgress size={13} color="inherit" /> : <SaveIcon fontSize="small" />}
+                  startIcon={saving ? <CircularProgress size={13} color="inherit" /> : null}
                   onClick={save}
-                  disabled={saving || !name?.trim() || !description?.trim() || !sourceCollection}
+                  disabled={saving}
                   sx={{
                     borderRadius: 2, fontWeight: 700, textTransform: 'none',
                     bgcolor: '#14213d', boxShadow: 'none',
@@ -614,12 +696,74 @@ What would you like to know?`,
           {/* BUILD */}
           {!loading && tab === 'build' && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-              {!sourceCollection ? (
-                <Paper variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
-                  <Typography color="text.secondary">
-                    Pick a source table from the side rail to start building this dataset.
-                  </Typography>
-                </Paper>
+              {/* Build mode toggle — always visible. "Build steps" needs a source
+                  table; "Use a Prism query" can be selected without one. Only one
+                  mode is ever active. */}
+              <ToggleButtonGroup
+                value={sourceMode}
+                exclusive
+                size="small"
+                onChange={switchMode}
+                sx={{
+                  alignSelf: 'flex-start', mb: 0.5,
+                  '& .MuiToggleButton-root': { textTransform: 'none', fontWeight: 600, fontSize: '0.78rem', px: 1.5, py: 0.5, border: '1px solid #e2e8f0', color: '#64748b' },
+                  '& .Mui-selected': { bgcolor: '#eef2ff !important', color: '#4f46e5 !important', borderColor: '#c7d2fe !important' },
+                  '& .Mui-disabled': { color: '#cbd5e1' },
+                }}
+              >
+                <ToggleButton value="steps" disabled={!sourceCollection}>
+                  <AccountTreeIcon sx={{ fontSize: 16, mr: 0.5 }} /> Build steps
+                </ToggleButton>
+                <ToggleButton value="savedQuery">
+                  <CodeIcon sx={{ fontSize: 16, mr: 0.5 }} /> Use a Prism query
+                </ToggleButton>
+              </ToggleButtonGroup>
+
+              {sourceMode === 'savedQuery' ? (
+                <Box sx={{ pt: 1 }}>
+                  <Stack spacing={2}>
+                    <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.5 }}>
+                      Use a saved Prism (SQL) query as this dataset's definition — the preview and output come from the query's results.
+                    </Typography>
+                    <SearchSelect
+                      fullWidth
+                      label="Prism query"
+                      placeholder={savedQueries.length ? 'Select a saved query…' : 'No saved queries yet'}
+                      value={savedQueryId}
+                      onChange={handleSelectSavedQuery}
+                      options={savedQueries.map((q) => ({
+                        value: q._id,
+                        label: q.name,
+                        description: q.primaryCollection ? `Reads from ${q.primaryCollection}` : 'SQL query',
+                      }))}
+                    />
+                    {savedQuerySql ? (
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.75, display: 'block' }}>
+                          Query SQL
+                        </Typography>
+                        <Paper
+                          variant="outlined"
+                          sx={{ p: 2, borderRadius: 2, border: 'none', bgcolor: '#0f172a', color: '#e2e8f0', fontFamily: 'ui-monospace, monospace', fontSize: '0.78rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', maxHeight: 260, overflow: 'auto' }}
+                        >
+                          {savedQuerySql}
+                        </Paper>
+                      </Box>
+                    ) : (
+                      <EmptyCard
+                        icon={<CodeIcon sx={{ fontSize: 32, color: '#94A3B8' }} />}
+                        title="No query selected"
+                        subtitle="Pick a saved Prism query above. Don't have one yet? Open Prism, write a query, save it, and it'll appear here."
+                      />
+                    )}
+                  </Stack>
+                </Box>
+              ) : !sourceCollection ? (
+                <EmptyCard
+                  icon={<StorageIcon sx={{ fontSize: 32, color: '#94A3B8' }} />}
+                  title="No source table selected"
+                  subtitle="Pick a source table from the side rail to start building with steps — then filter, combine, summarize, and shape it. (Or switch to “Use a Prism query” above.)"
+                />
               ) : (
                 <>
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
@@ -633,6 +777,7 @@ What would you like to know?`,
                             sourceCollection={sourceCollection}
                             onChange={(next) => updateStep(i, next)}
                             onDelete={() => deleteStep(i)}
+                            onSaved={() => setSavedMsg('Step saved')}
                             rowCount={cnt}
                             defaultExpanded={i === justAddedIndex}
                             precedingSteps={steps.slice(0, i).filter((st) => !st.disabled)}
@@ -641,8 +786,19 @@ What would you like to know?`,
                         </React.Fragment>
                       );
                     })}
-                    <AddStepButton onAdd={addStep} existingKinds={steps.map((s) => s.kind)} />
+                    {/* Centered add-step button */}
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 0.5 }}>
+                      <AddStepButton onAdd={addStep} existingKinds={steps.map((s) => s.kind)} />
+                    </Box>
                   </Box>
+
+                  {steps.length === 0 && (
+                    <EmptyCard
+                      icon={<AccountTreeIcon sx={{ fontSize: 32, color: '#94A3B8' }} />}
+                      title="No steps yet"
+                      subtitle="Use the + button above to add your first step — filter rows, combine tables, add calculated columns, summarize, sort, and more to shape your dataset."
+                    />
+                  )}
                 </>
               )}
             </Box>
@@ -661,25 +817,31 @@ What would you like to know?`,
                       {sampleMode ? ` · sample ${sampleSize.toLocaleString()}` : ' · full table'}
                     </Typography>
                   )}
-                  <Button
-                    size="small"
-                    startIcon={running ? <CircularProgress size={13} sx={{ color: '#15803d' }} /> : <PlayArrowIcon fontSize="small" />}
-                    onClick={() => runPreview(true)}
-                    disabled={running || !sourceCollection}
-                    sx={{
-                      borderRadius: 2, fontWeight: 600, textTransform: 'none',
-                      color: '#15803d', borderColor: '#bbf7d0', bgcolor: '#f0fdf4',
-                      border: '1px solid #bbf7d0',
-                      '&:hover': { bgcolor: '#dcfce7', borderColor: '#86efac' },
-                      '&.Mui-disabled': { bgcolor: '#f0fdf4', borderColor: '#dcfce7', color: '#86efac' },
-                    }}
-                  >
-                    {running ? 'Running…' : 'Re-run'}
-                  </Button>
+                  {sourceCollection && (
+                    <Button
+                      size="small"
+                      startIcon={running ? <CircularProgress size={13} sx={{ color: '#15803d' }} /> : <PlayArrowIcon fontSize="small" />}
+                      onClick={() => runPreview(true)}
+                      disabled={running}
+                      sx={{
+                        borderRadius: 2, fontWeight: 600, textTransform: 'none',
+                        color: '#15803d', borderColor: '#bbf7d0', bgcolor: '#f0fdf4',
+                        border: '1px solid #bbf7d0',
+                        '&:hover': { bgcolor: '#dcfce7', borderColor: '#86efac' },
+                        '&.Mui-disabled': { bgcolor: '#f0fdf4', borderColor: '#dcfce7', color: '#86efac' },
+                      }}
+                    >
+                      {running ? 'Running…' : 'Re-run'}
+                    </Button>
+                  )}
                 </Stack>
               </Stack>
               {!sourceCollection ? (
-                <Typography color="text.secondary" variant="body2">Pick a source first.</Typography>
+                <EmptyCard
+                  icon={<StorageIcon sx={{ fontSize: 32, color: '#94A3B8' }} />}
+                  title="No source table selected"
+                  subtitle="Pick a source table from the side rail first, then press Re-run to preview a live sample of your dataset here."
+                />
               ) : previewData?.data?.length > 0 ? (
                 <DataTable
                   data={previewData.data}
@@ -693,9 +855,11 @@ What would you like to know?`,
               ) : running ? (
                 <Skeleton variant="rounded" height={240} />
               ) : (
-                <Typography color="text.secondary" variant="body2">
-                  No rows yet — add steps or press Re-run.
-                </Typography>
+                <EmptyCard
+                  icon={<PlayArrowIcon sx={{ fontSize: 32, color: '#94A3B8' }} />}
+                  title="No preview yet"
+                  subtitle="Press Re-run above to execute the current build steps and see a live sample of your dataset here."
+                />
               )}
             </Stack>
           )}
@@ -708,9 +872,11 @@ What would you like to know?`,
                 Drag to reorder columns in Preview. Hide columns by toggling them off.
               </Typography>
               {previewColumns.length === 0 ? (
-                <Typography color="text.secondary" variant="body2" sx={{ mt: 1 }}>
-                  Run a preview to inspect the output schema.
-                </Typography>
+                <EmptyCard
+                  icon={<ViewColumnIcon sx={{ fontSize: 32, color: '#94A3B8' }} />}
+                  title="No schema yet"
+                  subtitle="Run a preview from the Preview tab to inspect the output columns, sample values, and reorder them here."
+                />
               ) : (
                 <Paper variant="outlined" sx={{ mt: 1 }}>
                   <List dense disablePadding>
@@ -795,58 +961,6 @@ What would you like to know?`,
             </Stack>
           )}
 
-          {/* PIPELINE */}
-          {!loading && tab === 'pipeline' && (
-            <Stack spacing={1}>
-              <Stack direction="row" alignItems="center" spacing={1} justifyContent="space-between">
-                <Stack direction="row" alignItems="center" spacing={1}>
-                  <CodeIcon sx={{ color: 'text.secondary' }} />
-                  <Typography variant="subtitle2">Compiled MongoDB pipeline</Typography>
-                </Stack>
-                <Tooltip title="Copy pipeline JSON">
-                  <span>
-                    <Button
-                      size="small"
-                      startIcon={<ContentCopyIcon fontSize="small" />}
-                      onClick={() => {
-                        const text = JSON.stringify(compiledPipeline, null, 2);
-                        if (navigator.clipboard?.writeText) {
-                          navigator.clipboard.writeText(text).then(() => setSavedMsg('Pipeline JSON copied to clipboard'));
-                        }
-                      }}
-                      disabled={!compiledPipeline?.length}
-                      sx={{
-                        borderRadius: 2, fontWeight: 600, textTransform: 'none',
-                        color: '#475569', borderColor: '#e2e8f0', bgcolor: '#f8fafc',
-                        border: '1px solid #e2e8f0',
-                        '&:hover': { bgcolor: '#f1f5f9', borderColor: '#cbd5e1' },
-                        '&.Mui-disabled': { bgcolor: '#f8fafc', borderColor: '#f1f5f9', color: '#cbd5e1' },
-                      }}
-                    >
-                      Copy JSON
-                    </Button>
-                  </span>
-                </Tooltip>
-              </Stack>
-              <Typography variant="caption" color="text.secondary">
-                Read-only. Regenerated from the build steps each time you save.
-                {sourceCollection && <> Runs against <strong>{sourceCollection}</strong>.</>}
-              </Typography>
-              <pre
-                style={{
-                  fontFamily: 'monospace', fontSize: 12, background: '#0f172a', color: '#e2e8f0',
-                  padding: 12, borderRadius: 6, overflow: 'auto', maxHeight: '60vh', margin: 0,
-                }}
-              >
-                {sourceCollection ? `db.${sourceCollection}.aggregate(\n` : ''}{JSON.stringify(compiledPipeline, null, 2)}{sourceCollection ? '\n)' : ''}
-              </pre>
-              {compiledPipeline?.length === 0 && (
-                <Typography variant="caption" color="text.secondary">
-                  No stages yet — add steps in Build to see them compile here.
-                </Typography>
-              )}
-            </Stack>
-          )}
 
           {/* HISTORY */}
           {!loading && tab === 'history' && (
@@ -870,11 +984,11 @@ What would you like to know?`,
               {versionsLoading ? (
                 <Skeleton variant="rounded" height={120} />
               ) : versions.length === 0 ? (
-                <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Typography color="text.secondary" variant="body2">
-                    No prior versions yet. Save the dataset to start the history.
-                  </Typography>
-                </Paper>
+                <EmptyCard
+                  icon={<HistoryIcon sx={{ fontSize: 32, color: '#94A3B8' }} />}
+                  title="No history yet"
+                  subtitle="Save the dataset to start capturing version snapshots. The most recent 20 saves are kept here for you to restore."
+                />
               ) : (
                 <Paper variant="outlined">
                   <List dense disablePadding>
@@ -891,12 +1005,7 @@ What would you like to know?`,
                                 size="small"
                                 startIcon={<RestoreIcon fontSize="small" />}
                                 onClick={() => setRestoreTarget(v)}
-                                sx={{
-                                  borderRadius: 2, fontWeight: 600, textTransform: 'none', minWidth: 90,
-                                  color: '#1e40af', borderColor: '#bfdbfe', bgcolor: '#eff6ff',
-                                  border: '1px solid #bfdbfe',
-                                  '&:hover': { bgcolor: '#dbeafe', borderColor: '#93c5fd' },
-                                }}
+                                sx={restoreButtonSx}
                               >
                                 Restore
                               </Button>
@@ -933,21 +1042,20 @@ What would you like to know?`,
 
       {/* Discard confirm */}
       <Dialog open={confirmCloseOpen} onClose={() => setConfirmCloseOpen(false)} maxWidth="xs">
-        <DialogTitle>Discard unsaved changes?</DialogTitle>
+        <BrandedDialogTitle label="Dataset" title="Discard Changes" onClose={() => setConfirmCloseOpen(false)} />
         <DialogContent>
           <DialogContentText>
             You have unsaved changes to this dataset. Closing now will lose them.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirmCloseOpen(false)}>Keep editing</Button>
           <Button onClick={confirmDiscard} color="error" variant="contained">Discard changes</Button>
         </DialogActions>
       </Dialog>
 
       {/* Restore confirm */}
       <Dialog open={!!restoreTarget} onClose={() => setRestoreTarget(null)} maxWidth="xs">
-        <DialogTitle>Restore this version?</DialogTitle>
+        <BrandedDialogTitle label="Dataset" title="Restore Version" onClose={() => setRestoreTarget(null)} />
         <DialogContent>
           <DialogContentText>
             This will load v{restoreTarget?.version ?? '?'} (saved{' '}
@@ -957,42 +1065,175 @@ What would you like to know?`,
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRestoreTarget(null)}>Cancel</Button>
-          <Button
-            onClick={() => restoreFromVersion(restoreTarget)}
-            color="primary" variant="contained"
-            startIcon={<RestoreIcon />}
-          >
+          <Button size="small" onClick={() => restoreFromVersion(restoreTarget)} startIcon={<RestoreIcon fontSize="small" />} sx={restoreButtonSx}>
             Restore
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Snackbar
-        open={!!savedMsg}
-        autoHideDuration={2500}
-        onClose={() => setSavedMsg('')}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        sx={{ mt: 8, zIndex: (theme) => theme.zIndex.modal + 20 }}
+      {/* Mode-switch confirm — only one of steps / Prism query can be active */}
+      <Dialog
+        open={!!pendingMode}
+        onClose={() => setPendingMode(null)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 4, overflow: 'hidden', boxShadow: '0 32px 64px rgba(0,0,0,0.16)', border: '1px solid', borderColor: 'divider' } }}
       >
-        <Alert
-          severity="success"
-          variant="filled"
-          icon={false}
-          onClose={() => setSavedMsg('')}
+        <Box
           sx={{
-            bgcolor: '#dcfce7',
-            color: '#166534',
-            fontWeight: 600,
-            border: '1px solid #bbf7d0',
-            boxShadow: '0 6px 16px rgba(22,163,74,0.15)',
-            '& .MuiAlert-action': { color: '#166534' },
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            px: 3, pt: 3, pb: 2.5,
+            background: 'linear-gradient(135deg, rgba(30,64,175,0.05) 0%, rgba(99,102,241,0.04) 100%)',
+            borderBottom: '1px solid', borderColor: 'divider',
           }}
         >
-          {savedMsg}
-        </Alert>
-      </Snackbar>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <img src="/fyntrac9.png" alt="Fyntrac" style={{ width: 64, height: 'auto' }} />
+            <Box>
+              <Chip
+                label="Dataset"
+                size="small"
+                sx={{ height: 20, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', bgcolor: 'rgba(99, 102, 241, 0.1)', color: '#6366F1', mb: 0.5, borderRadius: '8px' }}
+              />
+              <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2, color: 'text.primary' }}>
+                Switch build mode?
+              </Typography>
+            </Box>
+          </Box>
+          <Tooltip title="Close" placement="left">
+            <IconButton onClick={() => setPendingMode(null)} size="small" sx={{ color: 'text.secondary', bgcolor: 'action.hover', borderRadius: 2, '&:hover': { bgcolor: 'error.50', color: 'error.main' } }}>
+              <HighlightOffOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+        <DialogContent sx={{ pt: 3 }}>
+          <DialogContentText sx={{ fontSize: '0.85rem', color: 'text.primary' }}>
+            A dataset can use <b>either</b> build steps <b>or</b> a Prism query — not both.
+            <br /><br />
+            {pendingMode === 'savedQuery'
+              ? 'Switching to a Prism query will disable all of this dataset’s build steps.'
+              : 'Switching to build steps will clear the selected Prism query.'}
+            {' '}Continue?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={() => setPendingMode(null)} sx={{ textTransform: 'none', color: '#64748b' }}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => { applyMode(pendingMode); setPendingMode(null); }}
+            sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 2, px: 2.5, bgcolor: '#14213d', boxShadow: 'none', '&:hover': { bgcolor: '#0a1628', boxShadow: 'none' } }}
+          >
+            Continue
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Collection-mismatch confirm when a Prism query reads from a different table */}
+      <Dialog
+        open={!!mismatch}
+        onClose={() => setMismatch(null)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 4, overflow: 'hidden', boxShadow: '0 32px 64px rgba(0,0,0,0.16)', border: '1px solid', borderColor: 'divider' } }}
+      >
+        {/* Branded header */}
+        <Box
+          sx={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            px: 3, pt: 3, pb: 2.5,
+            background: 'linear-gradient(135deg, rgba(30,64,175,0.05) 0%, rgba(99,102,241,0.04) 100%)',
+            borderBottom: '1px solid', borderColor: 'divider',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <img src="/fyntrac9.png" alt="Fyntrac" style={{ width: 64, height: 'auto' }} />
+            <Box>
+              <Chip
+                label="Dataset"
+                size="small"
+                sx={{ height: 20, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', bgcolor: 'rgba(99, 102, 241, 0.1)', color: '#6366F1', mb: 0.5, borderRadius: '8px' }}
+              />
+              <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2, color: 'text.primary' }}>
+                Different source collection
+              </Typography>
+            </Box>
+          </Box>
+          <Tooltip title="Close" placement="left">
+            <IconButton
+              onClick={() => setMismatch(null)}
+              size="small"
+              sx={{ color: 'text.secondary', bgcolor: 'action.hover', borderRadius: 2, '&:hover': { bgcolor: 'error.50', color: 'error.main' } }}
+            >
+              <HighlightOffOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+
+        <DialogContent sx={{ pt: 3 }}>
+          <DialogContentText sx={{ fontSize: '0.85rem', color: 'text.primary' }}>
+            The Prism query <b>“{mismatch?.query?.name}”</b> reads from <b>{mismatch?.query?.primaryCollection}</b>, but this
+            dataset's source table is <b>{mismatch?.datasetCollection}</b>.
+            <br /><br />
+            If you use it anyway, the dataset's source table will be changed to <b>{mismatch?.query?.primaryCollection}</b>.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={() => setMismatch(null)} sx={{ textTransform: 'none', color: '#64748b' }}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => { if (mismatch?.query) applySavedQuery(mismatch.query, { replaceSource: true }); setMismatch(null); }}
+            sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 2, px: 2.5, bgcolor: '#14213d', boxShadow: 'none', '&:hover': { bgcolor: '#0a1628', boxShadow: 'none' } }}
+          >
+            Use anyway
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <AppToast open={!!savedMsg} onClose={() => setSavedMsg('')} message={savedMsg} modal />
     </Dialog>
+  );
+}
+
+// Shared animated empty-state card used across the Build / Preview / Schema /
+// History tabs. Soft slate "tint" icon on a pastel circle, with a gentle
+// fade-in-up on mount and a slow float loop on the icon.
+function EmptyCard({ icon, title, subtitle }) {
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        textAlign: 'center', py: 6, px: 4, borderRadius: 4,
+        border: '1px dashed #cbd5e1', bgcolor: '#fff',
+        animation: 'fyntrac-empty-in 0.45s ease both',
+        '@keyframes fyntrac-empty-in': {
+          '0%': { opacity: 0, transform: 'translateY(10px)' },
+          '100%': { opacity: 1, transform: 'translateY(0)' },
+        },
+      }}
+    >
+      <Stack alignItems="center" spacing={1.5}>
+        <Box
+          sx={{
+            width: 64, height: 64, borderRadius: '50%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            bgcolor: '#f1f5f9',
+            animation: 'fyntrac-empty-float 2.6s ease-in-out infinite',
+            '@keyframes fyntrac-empty-float': {
+              '0%, 100%': { transform: 'translateY(0)' },
+              '50%': { transform: 'translateY(-6px)' },
+            },
+          }}
+        >
+          {icon}
+        </Box>
+        <Typography sx={{ fontFamily: 'Inter', fontSize: '1rem', fontWeight: 600, color: '#64748B' }}>
+          {title}
+        </Typography>
+        <Typography variant="body2" sx={{ fontFamily: 'Inter', fontSize: '0.875rem', color: '#94A3B8', maxWidth: 380 }}>
+          {subtitle}
+        </Typography>
+      </Stack>
+    </Paper>
   );
 }
 

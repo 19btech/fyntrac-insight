@@ -1,24 +1,28 @@
 import api from './useQuery';
 
-const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:4000/api';
+const BASE_URL = process.env.REACT_APP_API_BASE_URL || '/api';
 
 /**
  * Stream an SSE endpoint.
  * @param {string} path - API path (e.g. '/ai/chat')
  * @param {object} body - Request body
  * @param {function} onChunk - Called with each text chunk
+ * @param {AbortSignal} [signal] - Optional signal to cancel the in-flight stream
  */
-export async function streamSSE(path, body, onChunk) {
+export async function streamSSE(path, body, onChunk, signal) {
   const token = sessionStorage.getItem('insight_auth_token');
   const tenant = sessionStorage.getItem('insight_tenant');
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (tenant) headers['X-Tenant'] = tenant;
+
   const response = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(tenant ? { 'X-Tenant': tenant } : {}),
-    },
+    headers,
     body: JSON.stringify(body),
+    signal,
   });
 
   if (!response.ok) {

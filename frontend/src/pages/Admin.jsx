@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   Box, Typography, Grid, Card, CardContent, Table, TableHead, TableBody,
-  TableRow, TableCell, TablePagination, MenuItem, Select, FormControl,
-  InputLabel, TextField, Stack, CircularProgress, Alert, Fade,
+  TableRow, TableCell, TablePagination,
+  TextField, Stack, CircularProgress, Fade,
 } from '@mui/material';
 import { LineChart } from '@mui/x-charts/LineChart';
 import { BarChart } from '@mui/x-charts/BarChart';
@@ -11,6 +11,8 @@ import PeopleIcon from '@mui/icons-material/People';
 import BoltIcon from '@mui/icons-material/Bolt';
 import TodayIcon from '@mui/icons-material/Today';
 import api from '../hooks/useQuery';
+import SearchSelect from '../components/shared/SearchSelect';
+import AppToast from '../components/shared/AppToast';
 
 // Design-token palette — synced with metabaseTheme.js / theme.ts
 const INDIGO      = '#6366f1'; // tokens.brand.indigo
@@ -71,11 +73,10 @@ function StatCard({ label, value, accent, IconComp, delay }) {
     <Fade in={show} timeout={500}>
       <Card variant="outlined" sx={{
         borderRadius: 2,
-        border: '1px solid #e2e8f0',
-        borderTop: `3px solid ${accent}`,
+        border: `1.5px solid ${accent}40`,
         boxShadow: 'none',
-        transition: 'box-shadow 0.2s',
-        '&:hover': { boxShadow: '0 4px 16px rgba(0,0,0,0.08)' },
+        transition: 'box-shadow 0.2s, border-color 0.2s',
+        '&:hover': { boxShadow: `0 4px 16px ${accent}20`, borderColor: `${accent}80` },
       }}>
         <CardContent sx={{ pb: '16px !important' }}>
           <Stack direction="row" alignItems="flex-start" spacing={1.5}>
@@ -187,26 +188,14 @@ export default function AdminPage() {
 
   return (
     <Fade in={mounted} timeout={300}>
-      <Box sx={{ p: { xs: 2, md: 3 } }}>
+      <Box>
         {/* Page header */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
-          <Box sx={{
-            width: 36, height: 36, borderRadius: 2, bgcolor: INDIGO_BG,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <QueryStatsIcon sx={{ fontSize: 20, color: INDIGO_DARK }} />
-          </Box>
-          <Box>
-            <Typography variant="h5" fontWeight={700} sx={{ color: SLATE_900 }}>Usage Analytics</Typography>
-            <Typography variant="body2" color="text.secondary">Last 30 days · tenant-scoped audit log</Typography>
-          </Box>
-        </Box>
+        <Stack direction="row" alignItems="center" justifyContent="space-between"
+          sx={{ pt: 1.5, pl: 1.5, pb: 2, mb: 4, borderBottom: '1.5px solid rgba(148, 163, 184, 0.2)' }}>
+          <Typography variant="h5" sx={{ fontWeight: 600, letterSpacing: '-0.5px', color: 'text.primary' }}>Usage Analytics</Typography>
+        </Stack>
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError(null)}>
-            {error}
-          </Alert>
-        )}
+        <AppToast open={!!error} onClose={() => setError(null)} message={error} severity="error" />
 
         {loadingSummary ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
@@ -237,7 +226,7 @@ export default function AdminPage() {
                     dataset={dailyActivity}
                     xAxis={[{ dataKey: '_id', scaleType: 'point', tickLabelStyle: { fontSize: 11, fill: SLATE_500 } }]}
                     yAxis={[{ tickLabelStyle: { fontSize: 11, fill: SLATE_500 } }]}
-                    series={[{ dataKey: 'count', label: 'Activity', color: INDIGO, showMark: false, curve: 'monotoneX' }]}
+                    series={[{ dataKey: 'count', color: INDIGO, showMark: false, curve: 'monotoneX' }]}
                     height={220}
                     margin={{ top: 16, right: 16, bottom: 32, left: 48 }}
                     grid={{ horizontal: true }}
@@ -331,24 +320,26 @@ export default function AdminPage() {
             {/* Filters */}
             <Box sx={{ p: 2, borderBottom: '1px solid #f1f5f9' }}>
               <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', gap: 1 }}>
-                <FormControl size="small" sx={{ minWidth: 160 }}>
-                  <InputLabel>Action</InputLabel>
-                  <Select value={filterAction} label="Action" onChange={(e) => { setFilterAction(e.target.value); setPage(0); }}>
-                    <MenuItem value="">All</MenuItem>
-                    {['query.run', 'dashboard.view', 'question.view', 'question.save', 'metric.evaluate', 'metric.create'].map((a) => (
-                      <MenuItem key={a} value={a}>{ACTION_DISPLAY_LABEL[a] || a}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" sx={{ minWidth: 140 }}>
-                  <InputLabel>Resource</InputLabel>
-                  <Select value={filterResourceType} label="Resource" onChange={(e) => { setFilterResourceType(e.target.value); setPage(0); }}>
-                    <MenuItem value="">All</MenuItem>
-                    {['dashboard', 'question', 'metric', 'collection'].map((r) => (
-                      <MenuItem key={r} value={r}>{RESOURCE_DISPLAY_LABEL[r] || r}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                <SearchSelect
+                  value={filterAction}
+                  onChange={(val) => { setFilterAction(val ?? ''); setPage(0); }}
+                  options={[
+                    { value: '', label: 'All actions' },
+                    ...['query.run','dashboard.view','question.view','question.save','metric.evaluate','metric.create'].map((a) => ({ value: a, label: ACTION_DISPLAY_LABEL[a] || a })),
+                  ]}
+                  label="Action"
+                  width={180}
+                />
+                <SearchSelect
+                  value={filterResourceType}
+                  onChange={(val) => { setFilterResourceType(val ?? ''); setPage(0); }}
+                  options={[
+                    { value: '', label: 'All resources' },
+                    ...['dashboard','question','metric','collection'].map((r) => ({ value: r, label: RESOURCE_DISPLAY_LABEL[r] || r })),
+                  ]}
+                  label="Resource"
+                  width={160}
+                />
                 <TextField size="small" label="From" type="date" value={filterFrom}
                   onChange={(e) => { setFilterFrom(e.target.value); setPage(0); }}
                   InputLabelProps={{ shrink: true }} />

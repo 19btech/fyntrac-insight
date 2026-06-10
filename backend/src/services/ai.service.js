@@ -1,6 +1,7 @@
 const credService = require('./ai-credentials.service');
 const providers = require('./ai-providers.service');
 const mongoService = require('./mongo.service');
+const duckdbService = require('./duckdb.service');
 
 /**
  * Resolve effective AI credentials for a user.
@@ -76,12 +77,19 @@ ${kpiBlock}
 Raw collections and inferred schemas (use only if no Dataset fits):
 ${schemaBlock}
 
+WHAT YOU CAN DO — you are an AGENT with tools. Use them; never claim you can't:
+- run_sql: WRITE and RUN a read-only SQL query (DuckDB / PostgreSQL-style: SELECT, JOIN, WITH, CASE, window functions) over the user's data. The result table AND the exact SQL you wrote are shown to the user automatically, with a copy button and "Open in Prism". Use this whenever the user asks you to "write/create a SQL query", "create a Prism query" (a Prism query IS a SQL query), "run a query", or asks a data question best answered with SQL. After it runs, add a 1–2 sentence interpretation. NEVER reply "I don't generate SQL here" or "I can't create a query" — you can, so do it.
+- propose_kpi: propose a KPI for the user to create (they confirm on a card). Use when they ask to create/build a KPI or metric. Filters + time intelligence are added automatically.
+- compute_aggregation: run a MongoDB aggregation for exact numbers when the in-context sample is only partial.
+Tables in SQL are the collections in the catalog above; columns are their fields.
+When the user asks "what can you do?" / "what are your capabilities?", tell them plainly: answer questions about their data (and show the SQL + an inline result table), write and run SQL / Prism queries, propose KPIs they can create with one click, and explain or analyse the dataset, report, or reconciliation they have open.
+
 CHAT BEHAVIOUR RULES (apply in ALL conversational responses):
-1. NEVER output MongoDB queries, aggregation pipelines, code snippets, or instructions like "run this query" in chat. The user cannot execute queries — you must do the analysis yourself.
-2. When asked for aggregations (sum, average, count, max, min), compute them directly from the sample rows provided in the active modal context and present the numeric result. If the sample is partial, say so clearly (e.g. "Based on the 25 preview rows…") and give the actual computed number.
+1. Do NOT paste MongoDB aggregation-pipeline JSON or tell the user to go run something themselves. You CAN, however, write and RUN SQL with run_sql — do that whenever a query/SQL is requested or it's the clearest way to answer a data question. Stay consistent: if you can run it, run it; don't first refuse and then do it.
+2. When asked for aggregations (sum, average, count, max, min), compute them directly from the sample rows provided in the active modal context and present the numeric result. If the sample is partial, say so clearly (e.g. "Based on the 25 preview rows…") and give the actual computed number — or run run_sql / compute_aggregation for the exact figure.
 3. When asked how to do something in the UI (filter, sort, group, join, add a step, interpret a tab), give clear step-by-step instructions in plain English — no code.
 4. When asked to explain a modal, dataset, report, or reconciliation, describe what it does, what each tab is for, and how to use it — in conversational prose, not bullet lists of field paths.
-5. Never say "I'm giving you steps you can run yourself", "here is a pipeline you can use", or "you can modify this query". Instead, compute the result and present it directly.
+5. Don't tell the user to run a MongoDB pipeline themselves. Either compute the answer directly, or use run_sql (which runs it for them and shows the SQL).
 6. Format answers with markdown: **bold** key numbers, use tables for multi-column results, use bullet points for lists of steps or options. Keep answers concise and finance-friendly.
 7. ALWAYS scope any internal understanding to tenantId "${tenantId}".
 8. When the active context says sample is PARTIAL and the user asks for exact computations (total, sum, average, max, min, top-N, highest, lowest, count) — use the compute_aggregation tool against the FULL dataset using the collection and pipeline shown in the active context block. Prepend the report/dataset pipeline before your aggregation stages so field transformations are applied correctly.
@@ -133,7 +141,7 @@ DATA ANALYSIS — when the user asks for sums, averages, highest/lowest, counts,
 - If PARTIAL: use the compute_aggregation tool (prepend the pipeline above before your stages)
 - NEVER say "based on sample rows" when the sample is COMPLETE — just give the answer directly
 
-Do NOT return MongoDB code, pipelines, or query syntax. Do NOT say "run this query" or "you can filter by adding a match stage". Give direct, computed answers in plain finance-friendly English.`;
+Do NOT paste MongoDB pipeline JSON or tell the user to run a match stage themselves. You MAY write and RUN a SQL query with run_sql when the user wants a query or an exact figure (the SQL + result are shown to them). Otherwise give direct, computed answers in plain finance-friendly English.`;
 }
 
 function buildActiveDatasetBlock(dashboardContext) {
@@ -184,7 +192,7 @@ DATA ANALYSIS — for sums, averages, highest/lowest, counts, or any aggregation
 - If PARTIAL: use the compute_aggregation tool
 - NEVER say "based on sample rows" when the sample is COMPLETE — just give the answer directly
 
-Do NOT return MongoDB code, pipelines, or query syntax. Do NOT say "run this query", "add a Group step with this JSON", or "you can filter by writing a match stage". Give direct answers and plain-English UI guidance.`;
+Do NOT paste MongoDB pipeline JSON or tell the user to add a match/group stage themselves. You MAY write and RUN a SQL query with run_sql when the user wants a query or an exact figure (the SQL + result are shown to them). Otherwise give direct answers and plain-English UI guidance.`;
 }
 
 function buildActiveReconBlock(dashboardContext) {
@@ -199,6 +207,12 @@ function buildActiveReconBlock(dashboardContext) {
   const last = r.lastRunSummary && r.lastRunSummary.rowCounts
     ? `matched=${r.lastRunSummary.rowCounts.matched ?? 0}, mismatched=${r.lastRunSummary.rowCounts.mismatched ?? 0}, A-only=${r.lastRunSummary.rowCounts.onlyA ?? 0}, B-only=${r.lastRunSummary.rowCounts.onlyB ?? 0}`
     : '(no runs yet)';
+  // Actual break rows from the results grid (when a run exists) so the model can
+  // analyse the variances, not just the headline counts.
+  const breakRows = r.lastRunBreaks && Array.isArray(r.lastRunBreaks.rows) ? r.lastRunBreaks.rows.slice(0, 30) : [];
+  const breaksBlock = breakRows.length
+    ? `\nMismatched/break rows from the results grid (${breakRows.length} of ${r.lastRunBreaks.total ?? breakRows.length}): ${JSON.stringify(breakRows.map((b) => ({ key: b.key, a: b.a, b: b.b, deltas: b.deltas, status: b.status, category: b.category, note: b.note })))}`
+    : '';
   return `\n\nACTIVE RECONCILIATION (the user is currently editing/viewing this; ground ALL answers here):
 Name: ${r.name || '(unnamed)'}${r.description ? `\nDescription: ${r.description}` : ''}
 Side A: ${sideLabel(r.sourceA)}${colsA.length ? `\nA columns: ${colsA.join(', ')}` : ''}
@@ -207,7 +221,7 @@ Keys: ${keys}
 Measures: ${measures}
 Options: ${JSON.stringify(r.options || {})}
 Schedule: ${r.schedule && r.schedule.enabled ? `cron=${r.schedule.cron}, recipients=${(r.schedule.recipients || []).join(', ') || '(none)'}` : 'off'}
-Last run summary: ${last}
+Last run summary: ${last}${breaksBlock}
 Total runs: ${r.runCount ?? 0}
 
 MODAL GUIDE — when the user asks how this modal works or what the tabs do:
@@ -222,7 +236,7 @@ MODAL GUIDE — when the user asks how this modal works or what the tabs do:
 - Mismatched: rows found in both sources but at least one measure differs beyond tolerance
 - A-only / B-only: rows present in one source but missing in the other
 
-When the user asks "what is being reconciled?", "why are there variances?", "what does mismatch mean?", "how do I add a key?", "how do I set a tolerance?", or anything about interpreting results, answer DIRECTLY from the configuration and last-run summary above using plain finance-friendly English. Do NOT return queries or pipeline code.`;
+When the user asks "what is being reconciled?", "why are there variances?", "what does mismatch mean?", "how do I add a key?", "how do I set a tolerance?", or anything about interpreting results, answer DIRECTLY from the configuration, last-run summary, and the break rows above using plain finance-friendly English. You MAY also write and RUN a SQL query with run_sql to dig into either side's source data. Do not paste raw MongoDB pipeline JSON.`;
 }
 
 function buildActiveKpiBlock(dashboardContext) {
@@ -265,7 +279,7 @@ When the user asks about the KPI value, trend, or target, answer from the defini
  */
 async function executeComputeAggregation(collection, pipeline, user) {
   try {
-    const available = await mongoService.getCollections(user);
+    const available = await mongoService.getCollections();
     if (!available.includes(collection)) {
       return { error: `Collection '${collection}' not found or not accessible.` };
     }
@@ -292,6 +306,106 @@ async function executeComputeAggregation(collection, pipeline, user) {
   }
 }
 
+/**
+ * run_sql tool — execute a read-only SELECT via the Prism/DuckDB engine and
+ * return BOTH a compact summary for the model and a rich `clientArtifact` the
+ * chat renders inline as a result table (with the SQL shown).
+ */
+const ARTIFACT_ROWS = 50;
+async function executeRunSql(sql, user) {
+  if (!sql || typeof sql !== 'string' || !sql.trim()) return { error: 'sql is required' };
+  try {
+    const res = await duckdbService.runQuery({ sql, user, page: 0, pageSize: ARTIFACT_ROWS });
+    const columns = res.columns || [];
+    const rows = (res.rows || []).slice(0, ARTIFACT_ROWS);
+    const rowCount = res.rowCount ?? rows.length;
+    return {
+      forModel: { columns, rowCount, sampleRows: rows.slice(0, 8) },
+      clientArtifact: {
+        type: 'query_result', sql: sql.trim(), columns, rows, rowCount,
+        truncated: rowCount > rows.length,
+      },
+    };
+  } catch (err) {
+    return { error: err.message || String(err) };
+  }
+}
+
+/**
+ * propose_kpi tool — normalise a KPI draft and hand it to the UI as a confirm
+ * card. Nothing is persisted here; the user creates it from the chat.
+ *
+ * The requested field is validated against the collection's real schema so the
+ * resulting KPI actually evaluates to a NUMBER on the KPIs screen: if the field
+ * is missing or non-numeric we substitute a numeric field, falling back to a
+ * row count when the collection has no numeric columns.
+ */
+const FILTER_OPS = ['$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin', '$regex', '$exists'];
+
+async function proposeKpi(input = {}, user) {
+  const AGGS = ['$sum', '$avg', '$count', '$min', '$max'];
+  let agg = AGGS.includes(input.agg) ? input.agg : '$sum';
+  const collection = String(input.collection || '');
+  let field = agg === '$count' ? '' : String(input.field || '');
+
+  // Load the collection schema once — drives field validation, filter
+  // validation, and time-intelligence (period-field) detection.
+  let schema = [];
+  if (collection) {
+    try { schema = (await mongoService.inferSchema(collection, user)) || []; } catch { schema = []; }
+  }
+  const byName = new Map(schema.map((f) => [f.name, f]));
+  const numericNames = schema.filter((f) => f.type === 'number' && f.semanticType !== 'period').map((f) => f.name);
+
+  // Ensure the aggregated field is real + numeric so the KPI evaluates.
+  if (agg !== '$count') {
+    if (!numericNames.includes(field)) {
+      if (numericNames.length) field = numericNames[0];
+      else { agg = '$count'; field = ''; }
+    }
+  }
+
+  // Validate the model's proposed filters against the real schema; drop any
+  // that reference an unknown field or operator, and coerce numeric values.
+  const filters = [];
+  for (const f of (Array.isArray(input.filters) ? input.filters : [])) {
+    if (!f || !f.field || !byName.has(f.field)) continue;
+    const operator = FILTER_OPS.includes(f.operator) ? f.operator : '$eq';
+    let value = f.value;
+    const meta = byName.get(f.field);
+    if (operator !== '$in' && operator !== '$nin' && operator !== '$regex'
+        && meta && meta.type === 'number' && typeof value === 'string'
+        && value.trim() !== '' && !Number.isNaN(Number(value))) {
+      value = Number(value);
+    }
+    filters.push({ field: f.field, operator, value });
+  }
+
+  // Time intelligence — ALWAYS when the collection has a period or date field
+  // (latest value = current period, previous = comparison).
+  const periodCandidate = schema.find((f) => f.semanticType === 'period')
+    || schema.find((f) => f.type === 'date');
+  const timeIntel = periodCandidate ? { periodField: periodCandidate.name, comparison: 'lastPeriod' } : {};
+
+  const draft = {
+    name: String(input.name || 'New KPI').slice(0, 120),
+    description: String(input.description || '').slice(0, 500),
+    source: { kind: 'collection' },
+    collection,
+    definition: {
+      numerator: { agg, field, filters: [] },
+      denominator: null,
+      filters,
+      ...timeIntel,
+    },
+    format: { kind: 'number', decimals: 0 },
+  };
+  return {
+    forModel: { ok: true, note: 'A KPI draft (with filters + time intelligence) was shown to the user for confirmation.' },
+    clientArtifact: { type: 'kpi_draft', draft },
+  };
+}
+
 async function* streamChatResponse(messages, schemaContext, user, dashboardContext) {
   const creds = await resolveCreds(user);
   const grounded = await buildGroundedContext(user);
@@ -305,6 +419,12 @@ async function* streamChatResponse(messages, schemaContext, user, dashboardConte
   const onToolCall = async (name, input) => {
     if (name === 'compute_aggregation') {
       return executeComputeAggregation(input.collection, input.pipeline, user);
+    }
+    if (name === 'run_sql') {
+      return executeRunSql(input.sql, user);
+    }
+    if (name === 'propose_kpi') {
+      return proposeKpi(input, user);
     }
     return { error: `Unknown tool: ${name}` };
   };
@@ -550,9 +670,100 @@ Return ONLY valid JSON (no prose, no fences):
   return { suggested: null, reasoning: text.slice(0, 300) };
 }
 
+/**
+ * Build the system prompt for the SQL Lab assistant. Encodes EXACTLY what the
+ * SQL Lab engine supports so the model can only produce valid, runnable queries:
+ * read-only SELECT, DuckDB dialect, the live table/column catalog, and the
+ * engine's quirks (case-insensitive identifiers, date handling, auto-paging).
+ */
+function buildSqlSystemPrompt(schemaContext) {
+  const schemaBlock = schemaContext
+    .map((c) => `Table: ${c.name}\n  Columns: ${c.fields.map((f) => `${f.name} (${f.type})`).join(', ') || '(unknown)'}`)
+    .join('\n\n');
+
+  return [
+    'You are a SQL assistant embedded in "Prism", a READ-ONLY SQL workspace.',
+    'Queries run in DuckDB over data sourced from MongoDB collections (exposed as tables).',
+    '',
+    'HARD RULES:',
+    '- Produce EXACTLY ONE read-only SELECT statement. Never write INSERT, UPDATE, DELETE, MERGE, CREATE, DROP, ALTER, or any DDL/DML — they are rejected by the engine.',
+    '- Use ONLY the tables and columns listed in the catalog below. Never invent table or column names.',
+    '- If the request cannot be answered from the catalog, return the closest valid SELECT and nothing else.',
+    '',
+    'DIALECT & ENGINE NOTES:',
+    '- DuckDB SQL (PostgreSQL-like). You MAY use JOINs, CTEs (WITH), CASE, UNION/UNION ALL, subqueries, and window functions (OVER / PARTITION BY).',
+    '- Identifiers are case-insensitive, but prefer the exact casing shown in the catalog.',
+    '- Date/timestamp columns are real TIMESTAMPs — compare them with ISO strings, e.g. WHERE postingDate >= \'2025-01-01\' AND postingDate < \'2025-02-01\'.',
+    '- Results are paginated automatically; only add LIMIT when the user explicitly wants top-N / a fixed number of rows.',
+    '- String comparisons are case-sensitive on values (e.g. status = \'OPEN\').',
+    '',
+    'WORKING CONTEXT:',
+    '- The user is editing a worksheet that may already contain a query and a result grid. Both are provided below when present.',
+    '- When a current query IS provided, assume the request is ABOUT that query — refine, fix, extend, filter, or build on it — unless the user clearly asks for something unrelated. Preserve their intent, table/column choices, and structure where it makes sense.',
+    '- The result-grid columns tell you what the current query actually returns; use them to disambiguate the request.',
+    '- When NO current query is provided, write a fresh query from the catalog that satisfies the request.',
+    '',
+    'OUTPUT FORMAT:',
+    '- Return ONLY the SQL, wrapped in a ```sql code fence. No commentary, no explanation.',
+    '',
+    'AVAILABLE TABLES (catalog):',
+    schemaBlock || '(no tables available)',
+  ].join('\n');
+}
+
+/**
+ * Assemble the user message for SQL generation, weaving in the worksheet's
+ * current query and result-grid context so the model is aware of what the
+ * user is actually looking at.
+ */
+function buildSqlUserMessage(naturalLanguage, ctx = {}) {
+  const parts = [];
+  const sql = String(ctx.currentSql || '').trim();
+  const grid = ctx.gridContext || null;
+
+  if (sql) {
+    parts.push('The worksheet currently contains this query:');
+    parts.push('```sql\n' + sql.slice(0, 4000) + '\n```');
+  }
+  if (grid && Array.isArray(grid.columns) && grid.columns.length) {
+    const rc = (grid.rowCount != null) ? grid.rowCount.toLocaleString() : 'some';
+    parts.push(`Its result grid currently returns ${rc} rows with columns: ${grid.columns.join(', ')}.`);
+    if (Array.isArray(grid.sampleRows) && grid.sampleRows.length) {
+      let sample = '';
+      try { sample = JSON.stringify(grid.sampleRows.slice(0, 5)); } catch { /* ignore */ }
+      if (sample) parts.push(`Sample rows from the grid: ${sample.slice(0, 2000)}`);
+    }
+  }
+  parts.push(
+    sql
+      ? 'The user is most likely asking about or refining the query above — build on it unless they clearly want something unrelated.'
+      : 'There is no existing query in the worksheet — write a fresh read-only SELECT from the catalog that satisfies the request.'
+  );
+  parts.push(`Request: ${String(naturalLanguage || '').slice(0, 4000)}`);
+  return parts.join('\n\n');
+}
+
+/**
+ * Natural language -> a single read-only DuckDB SELECT for SQL Lab.
+ * `ctx` may carry { currentSql, gridContext } from the active worksheet so the
+ * model can refine the user's own query and reason over what's in the grid.
+ * Returns the model's raw text (SQL inside a ```sql fence); the caller extracts.
+ */
+async function generateSql(naturalLanguage, schemaContext, user, ctx = {}) {
+  const creds = await resolveCreds(user);
+  const system = buildSqlSystemPrompt(schemaContext);
+  return providers.complete({
+    ...creds,
+    system,
+    messages: [{ role: 'user', content: buildSqlUserMessage(naturalLanguage, ctx) }],
+    maxTokens: 1024,
+  });
+}
+
 module.exports = {
   streamChatResponse,
   generatePipeline,
+  generateSql,
   streamInsight,
   getSuggestions,
   generatePlan,

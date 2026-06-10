@@ -64,12 +64,12 @@ async function resolveSource(metric, user) {
   let result;
   if (src.kind === 'dataset') {
     if (!src.id) throw new Error('source.id required for dataset source');
-    const ds = await req.model('SavedModel').findOne({ _id: src.id, tenantId: user.tenantId, archived: { $ne: true } });
+    const ds = await user.getModel('SavedModel').findOne({ _id: src.id, tenantId: user.tenantId, archived: { $ne: true } });
     if (!ds) throw new Error('Source dataset not found');
     result = { collection: ds.sourceCollection, prefix: ds.pipeline || [] };
   } else if (src.kind === 'question') {
     if (!src.id) throw new Error('source.id required for question source');
-    const q = await req.model('Question').findOne({ _id: src.id, tenantId: user.tenantId, archived: { $ne: true } });
+    const q = await user.getModel('Question').findOne({ _id: src.id, tenantId: user.tenantId, archived: { $ne: true } });
     if (!q) throw new Error('Source report not found');
     const cfg = q.queryConfig || {};
     if (!cfg.collection) throw new Error('Source report has no collection');
@@ -411,6 +411,52 @@ router.post('/:id/evaluate', async (req, res) => {
 
     _evalCache.set(ek, { data: payload, ts: Date.now() });
     res.json(payload);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Batch evaluation — evaluate many metrics in one request so list pages (KPIs,
+ * dashboards) don't fire N separate /evaluate calls. Body: { ids: [...] }.
+ * Returns { [id]: payload | { error } }. Reuses the per-metric eval cache and
+ * runs with bounded concurrency.
+ */
+router.post('/evaluate-batch', async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.filter(Boolean).map(String))] : [];
+    if (ids.length === 0) return res.json({});
+    const metrics = await req.model('Metric').find({ _id: { $in: ids }, tenantId: req.user.tenantId });
+    const byId = new Map(metrics.map((m) => [String(m._id), m]));
+    const out = {};
+
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < ids.length) {
+        const id = ids[cursor++];
+        const metric = byId.get(id);
+        if (!metric) { out[id] = { error: true, message: 'Metric not found' }; continue; }
+        const ek = _evalKey(req.user.tenantId, id);
+        const ec = _evalCache.get(ek);
+        if (ec && (Date.now() - ec.ts) < EVAL_CACHE_TTL) { out[id] = ec.data; continue; }
+        try {
+          const r = await runEvaluation(metric, req.user);
+          const payload = {
+            metricId: metric._id, name: metric.name,
+            value: r.value, trendValue: r.trendValue, comparison: r.comparison,
+            currentPeriod: r.currentPeriodValue, previousPeriod: r.previousPeriodValue,
+            format: metric.format, targets: metric.targets, executionTimeMs: r.executionTimeMs,
+          };
+          _evalCache.set(ek, { data: payload, ts: Date.now() });
+          out[id] = payload;
+        } catch (e) {
+          out[id] = { error: true, message: e.message };
+        }
+      }
+    };
+    const CONCURRENCY = 6;
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
+    res.json(out);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

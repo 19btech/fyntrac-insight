@@ -146,12 +146,15 @@ function applyTransform(value, transform, opts = {}) {
 
 // ─── Source materialization ────────────────────────────────────────────────
 
-async function materializeSide(side, user) {
+async function materializeSide(side, user, limit = 0) {
   if (!side || !side.kind || !side.refId) throw new Error('Invalid source side');
   if (side.kind === 'dataset') {
     const ds = await SavedModel.findOne({ _id: side.refId, tenantId: user.tenantId });
     if (!ds) throw new Error(`Dataset not found: ${side.refId}`);
-    const result = await mongoService.executePipeline(ds.sourceCollection, ds.pipeline || [], user);
+    // Push a $limit into the pipeline for sampled previews so we never run the
+    // full aggregation just to estimate a match rate.
+    const pipeline = limit > 0 ? [...(ds.pipeline || []), { $limit: limit }] : (ds.pipeline || []);
+    const result = await mongoService.executePipeline(ds.sourceCollection, pipeline, user);
     return { name: ds.name, columns: result.columns || [], rows: result.data || [] };
   }
   if (side.kind === 'csv') {
@@ -160,10 +163,11 @@ async function materializeSide(side, user) {
     // Prefer pre-parsed rows stored at upload time; fall back to re-parsing raw text
     if (f.parsedRows && f.parsedRows.length > 0) {
       const columns = f.columns && f.columns.length > 0 ? f.columns : Object.keys(f.parsedRows[0] || {});
-      return { name: f.filename || 'CSV', columns, rows: f.parsedRows };
+      const rows = limit > 0 ? f.parsedRows.slice(0, limit) : f.parsedRows;
+      return { name: f.filename || 'CSV', columns, rows };
     }
     const { columns, rows } = parseCsv(f.raw || '');
-    return { name: f.filename || 'CSV', columns, rows };
+    return { name: f.filename || 'CSV', columns, rows: limit > 0 ? rows.slice(0, limit) : rows };
   }
   throw new Error(`Unknown source kind: ${side.kind}`);
 }
@@ -250,12 +254,36 @@ function suggestMapping(sideA, sideB) {
 
 // ─── Matching engine ───────────────────────────────────────────────────────
 
+/**
+ * Collapse a bare date/timestamp value to a YYYY-MM-DD string so keys never
+ * carry a time component. Handles Date objects, ISO strings, space-separated
+ * timestamps, and JS `Date.toString()` output. Leaves non-date values alone.
+ */
+function dateOnly(v) {
+  if (v == null) return v;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? v : v.toISOString().slice(0, 10);
+  const s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;                       // already plain date
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ][\d:.]/);              // ISO / space-separated
+  if (m) return m[1];
+  // JS Date.toString() ("Wed Mar 31 2025 00:00:00 GMT+0000 …") and similar —
+  // only convert when it clearly looks like a timestamp (has a time / GMT token).
+  if (/\d{4}/.test(s) && /(GMT|\dT\d\d|\d:\d\d)/.test(s)) {
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  return v;
+}
+
 function buildKey(row, cols, side, opts) {
   const parts = [];
   for (const c of cols) {
     const field = side === 'a' ? c.a : c.b;
-    let v = row[field];
-    v = applyTransform(v, c.transform || 'trim', { dateGranularity: opts.dateGranularity });
+    const transform = c.transform || 'trim';
+    let v = applyTransform(row[field], transform, { dateGranularity: opts.dateGranularity });
+    // When no explicit date bucket was chosen, still render dates as YYYY-MM-DD
+    // (not raw timestamps) in the key.
+    if (!String(transform).startsWith('date')) v = dateOnly(v);
     if (!opts.caseSensitive && typeof v === 'string') v = v.toLowerCase();
     parts.push(v == null ? '' : String(v));
   }
@@ -330,8 +358,17 @@ function fxRateFor(row, currencyField, fxRates, baseCurrency) {
  * @param previousRun — optional prior ReconRun document used to compute
  *                      `age` on persistent breaks and `newBreaksVsPrior`.
  *                      Pass `null` to skip aging (safe default).
+ * @param opts        — { preview, limitPerSide }
+ *                      preview=true  → skip the heavy per-row bookkeeping
+ *                                      (full records, annotation roll-forward)
+ *                                      and return summary only. Used by the
+ *                                      live "would this match?" dry-run.
+ *                      limitPerSide  → cap rows materialized per side (preview
+ *                                      responsiveness on very large sources).
  */
-async function runRecon(recon, user, previousRun = null) {
+async function runRecon(recon, user, previousRun = null, runOpts = {}) {
+  const preview = !!runOpts.preview;
+  const limitPerSide = Number(runOpts.limitPerSide) || 0;
   const start = Date.now();
   const opts = recon.options || {};
   const mapping = recon.mapping || {};
@@ -346,13 +383,22 @@ async function runRecon(recon, user, previousRun = null) {
 
   if (keyCols.length === 0) throw new Error('At least one key mapping is required');
 
+  // For sampled previews, cap at the source (push $limit / slice CSV) so we
+  // never materialize the full dataset just to estimate a match rate.
+  const matLimit = preview && limitPerSide > 0 ? limitPerSide : 0;
   const [sideA, sideB] = await Promise.all([
-    materializeSide(recon.sourceA, user),
-    materializeSide(recon.sourceB, user),
+    materializeSide(recon.sourceA, user, matLimit),
+    materializeSide(recon.sourceB, user, matLimit),
   ]);
 
-  const aRows = sideA.rows;
-  const bRows = sideB.rows;
+  let aRows = sideA.rows;
+  let bRows = sideB.rows;
+
+  // Belt-and-braces: also cap in memory (covers the non-preview safety limit).
+  if (limitPerSide > 0) {
+    if (aRows.length > limitPerSide) aRows = aRows.slice(0, limitPerSide);
+    if (bRows.length > limitPerSide) bRows = bRows.slice(0, limitPerSide);
+  }
 
   if (aRows.length > MAX_DATASET_ROWS || bRows.length > MAX_DATASET_ROWS) {
     throw new Error(
@@ -375,12 +421,23 @@ async function runRecon(recon, user, previousRun = null) {
     for (const r of bRows) mapB.set(keyB(r), { __key: keyB(r), __count: 1, __sample: r, ...r });
   }
 
-  // Build a quick lookup of prior-run mismatched keys → prior age.
-  const priorMismatchAge = new Map();
-  if (previousRun && Array.isArray(previousRun.rows)) {
+  // Build a quick lookup of prior-run break keys → prior annotation, so the
+  // analyst's work (category, note, owner, status, due date) rolls forward to
+  // the next run instead of being lost. Any non-matched prior row qualifies.
+  const priorByKey = new Map();
+  if (!preview && previousRun && Array.isArray(previousRun.rows)) {
     for (const pr of previousRun.rows) {
-      if (pr.status === 'mismatched' || pr.status === 'immaterial') {
-        priorMismatchAge.set(pr.key, Math.max(1, Number(pr.age) || 1));
+      if (pr.status && pr.status !== 'matched') {
+        priorByKey.set(pr.key, {
+          age: Math.max(1, Number(pr.age) || 1),
+          category: pr.category || '',
+          note: pr.note || '',
+          noteBy: pr.noteBy || '',
+          noteAt: pr.noteAt || null,
+          assignee: pr.assignee || '',
+          breakStatus: pr.breakStatus || '',
+          dueDate: pr.dueDate || null,
+        });
       }
     }
   }
@@ -446,16 +503,28 @@ async function runRecon(recon, user, previousRun = null) {
       }
     }
 
-    // Aging — only meaningful for breaks (mismatched / immaterial / onlyA / onlyB).
-    if (out.status !== 'matched') {
-      const priorAge = priorMismatchAge.get(k);
-      if (priorAge != null) {
-        out.age = priorAge + 1;
+    // Aging + roll-forward — only meaningful for breaks (mismatched /
+    // immaterial / onlyA / onlyB). Carry the analyst's prior annotations
+    // forward so investigation work isn't lost between runs.
+    if (out.status !== 'matched' && !preview) {
+      const prior = priorByKey.get(k);
+      if (prior) {
+        out.age = prior.age + 1;
+        // Roll forward analyst metadata.
+        if (prior.category) out.category = prior.category;
+        if (prior.note) { out.note = prior.note; out.noteBy = prior.noteBy; out.noteAt = prior.noteAt; }
+        if (prior.assignee) out.assignee = prior.assignee;
+        if (prior.breakStatus) out.breakStatus = prior.breakStatus;
+        if (prior.dueDate) out.dueDate = prior.dueDate;
         if (out.status === 'mismatched') persistent++;
       } else if (previousRun) {
         out.age = 1;
         if (out.status === 'mismatched') newBreaksVsPrior++;
       }
+      // Capture the full representative record from each side so the results
+      // UI can show a field-by-field A-vs-B inspector for this break.
+      if (a) out.aFull = fullRecord(a);
+      if (b) out.bFull = fullRecord(b);
     }
 
     rows.push(out);
@@ -483,6 +552,31 @@ async function runRecon(recon, user, previousRun = null) {
     sideAName: sideA.name,
     sideBName: sideB.name,
   };
+}
+
+/**
+ * Strip a stored/aggregated row down to a plain display record for the
+ * break inspector. Prefers the representative raw sample row captured during
+ * aggregation; falls back to the row itself. Internal bookkeeping keys are
+ * removed.
+ */
+function fullRecord(aggRow) {
+  if (!aggRow) return null;
+  const src = aggRow.__sample && typeof aggRow.__sample === 'object' ? aggRow.__sample : aggRow;
+  const out = {};
+  for (const k of Object.keys(src)) {
+    if (k.startsWith('__')) continue;
+    if (k === '_id') continue;
+    const v = src[k];
+    if (v == null) { out[k] = v; continue; }
+    if (typeof v === 'object') {
+      // Dates → ISO; everything else → best-effort string to keep BSON small.
+      out[k] = v instanceof Date ? v.toISOString() : String(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
 }
 
 function pickValues(aggRow, measureCols, attrCols, side) {
@@ -516,6 +610,25 @@ async function materializeColumnsOnly(side, user) {
   return materializeSide(side, user);
 }
 
+/**
+ * Lightweight dry-run used by the live "would this match?" preview in the
+ * mapping step. Runs the real matching engine (so counts are exact for the
+ * materialized rows) but never persists a ReconRun and skips the heavy
+ * per-row bookkeeping. Returns the summary only.
+ *
+ * @param recon — a config object: { sourceA, sourceB, mapping, options }
+ */
+async function previewMatch(recon, user, { limitPerSide = 0 } = {}) {
+  const result = await runRecon(recon, user, null, { preview: true, limitPerSide });
+  return {
+    summary: result.summary,
+    durationMs: result.durationMs,
+    rowsConsidered: { a: result.summary?.rowCounts?.a ?? 0, b: result.summary?.rowCounts?.b ?? 0 },
+    limited: limitPerSide > 0,
+    sampleSize: limitPerSide || 0,
+  };
+}
+
 module.exports = {
   parseCsv,
   inferTypes,
@@ -524,4 +637,5 @@ module.exports = {
   materializeColumnsOnly,
   suggestMapping,
   runRecon,
+  previewMatch,
 };

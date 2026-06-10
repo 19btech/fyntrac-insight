@@ -2,16 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button, Box, Typography, Stack,
   TextField, List, ListItemButton, ListItemText, Chip, CircularProgress, Tabs, Tab,
-  FormControl, InputLabel, Select, MenuItem, IconButton, Tooltip,
+  IconButton, Tooltip,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import HighlightOffOutlinedIcon from '@mui/icons-material/HighlightOffOutlined';
-import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
-import SpeedIcon from '@mui/icons-material/Speed';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import SearchIcon from '@mui/icons-material/Search';
 import api from '../../hooks/useQuery';
 import { CHART_TYPES } from '../charts/ChartRenderer';
+import SearchSelect from '../shared/SearchSelect';
 
 const DIALOG_PAPER_SX = {
   borderRadius: 4,
@@ -33,7 +32,6 @@ const TAB_SX = {
 
 const ITEM_META = {
   0: {
-    icon: <QuestionAnswerIcon fontSize="small" sx={{ color: '#2563eb' }} />,
     label: 'Reports',
     empty: 'No saved reports yet. Create a report first, then add it as a card.',
     search: 'Search reports…',
@@ -41,7 +39,6 @@ const ITEM_META = {
     footprint: '6 x 4 grid card',
   },
   1: {
-    icon: <SpeedIcon fontSize="small" sx={{ color: '#d97706' }} />,
     label: 'KPIs',
     empty: 'No KPIs yet. Define a KPI first, then add it as a card.',
     search: 'Search KPIs…',
@@ -163,9 +160,9 @@ export default function AddCardDialog({ open, onClose, onAdd }) {
                 label="Dashboard"
                 size="small"
                 sx={{
-                  height: 18, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
-                  textTransform: 'uppercase', bgcolor: alpha('#3f51b5', 0.1),
-                  color: '#3f51b5', mb: 0.5, borderRadius: 1,
+                  height: 20, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
+                  textTransform: 'uppercase', bgcolor: 'rgba(99, 102, 241, 0.1)',
+                  color: '#6366F1', mb: 0.5, borderRadius: '8px',
                 }}
               />
               <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2, color: 'text.primary' }}>
@@ -189,8 +186,8 @@ export default function AddCardDialog({ open, onClose, onAdd }) {
       </DialogTitle>
       <DialogContent dividers>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-          <Tab icon={<QuestionAnswerIcon fontSize="small" />} iconPosition="start" label="Reports" />
-          <Tab icon={<SpeedIcon fontSize="small" />} iconPosition="start" label="KPIs" />
+          <Tab label="Reports" />
+          <Tab label="KPIs" />
         </Tabs>
 
         <Stack spacing={2}>
@@ -234,9 +231,6 @@ export default function AddCardDialog({ open, onClose, onAdd }) {
                     <ListItemText
                       primary={
                         <Stack direction="row" spacing={0.75} alignItems="center">
-                          {tab === 0
-                            ? <QuestionAnswerIcon fontSize="small" sx={{ color: '#2563eb' }} />
-                            : <SpeedIcon fontSize="small" sx={{ color: '#d97706' }} />}
                           <Typography variant="body2" sx={{ fontWeight: 600 }}>{it.name}</Typography>
                           {it.verified && <VerifiedIcon sx={{ fontSize: 14, color: '#16a34a' }} />}
                         </Stack>
@@ -270,18 +264,13 @@ export default function AddCardDialog({ open, onClose, onAdd }) {
           )}
 
           {selectedQuestion && (
-            <FormControl size="small" fullWidth>
-              <InputLabel>Chart layout override (this card only)</InputLabel>
-              <Select
-                label="Chart layout override (this card only)"
-                value={chartTypeOverride || (selectedQuestion.chartConfig?.chartType || 'table')}
-                onChange={(e) => setChartTypeOverride(e.target.value)}
-              >
-                {CHART_TYPES.map((t) => (
-                  <MenuItem key={t.key} value={t.key}>{t.label}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <SearchSelect
+              value={chartTypeOverride || (selectedQuestion.chartConfig?.chartType || 'table')}
+              onChange={(val) => setChartTypeOverride(val)}
+              options={CHART_TYPES.map((t) => ({ value: t.key, label: t.label }))}
+              label="Chart layout override (this card only)"
+              fullWidth
+            />
           )}
 
           {selectedId && (

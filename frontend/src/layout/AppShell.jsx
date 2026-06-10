@@ -1,14 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { Outlet, useNavigate } from 'react-router-dom';
 import { Box } from '@mui/material';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
-import AIChatDrawer from '../components/ai/AIChatDrawer';
-import SearchModal from '../components/shared/SearchModal';
-import ReportPreviewDialog from '../components/reports/ReportPreviewDialog';
-import DatasetPreviewDialog from '../components/datasets/DatasetPreviewDialog';
-import ReconPreviewDialog from '../components/recon/ReconPreviewDialog';
-import Settings from '../pages/Settings';
+
+// Heavy global dialogs (charts, data grid, markdown, assistant-ui, Monaco) are
+// lazy-loaded so their code stays out of the initial bundle and only loads the
+// first time the user opens that dialog.
+const AIChatDrawer = lazy(() => import('../components/ai/AIChatDrawer'));
+const SearchModal = lazy(() => import('../components/shared/SearchModal'));
+const ReportPreviewDialog = lazy(() => import('../components/reports/ReportPreviewDialog'));
+const DatasetPreviewDialog = lazy(() => import('../components/datasets/DatasetPreviewDialog'));
+const ReconPreviewDialog = lazy(() => import('../components/recon/ReconPreviewDialog'));
+const SqlLabDialog = lazy(() => import('../components/sql-lab/SqlLabDialog'));
+const Settings = lazy(() => import('../pages/Settings'));
 
 const SIDEBAR_EXPANDED = 252;
 const SIDEBAR_COLLAPSED = 72;
@@ -18,14 +23,24 @@ export default function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiSeedPrompt, setAiSeedPrompt] = useState('');
-  const [aiSeedKey, setAiSeedKey] = useState(0); // increments on every follow-up click
+  const [aiSeedKey, setAiSeedKey] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [reportModal, setReportModal] = useState(null); // { id, isNew } | null
-  const [datasetModal, setDatasetModal] = useState(null); // { id, isNew } | null
-  const [reconModal, setReconModal] = useState(null); // { id, isNew } | null
+  const [reportModal, setReportModal] = useState(null);
+  const [datasetModal, setDatasetModal] = useState(null);
+  const [reconModal, setReconModal] = useState(null);
+  const [sqlLabOpen, setSqlLabOpen] = useState(false);
+  // Keep the always-on dialogs mounted (for animations + state) once first
+  // opened, so their lazy chunk loads on demand but doesn't reload after that.
+  const [aiMounted, setAiMounted] = useState(false);
+  const [searchMounted, setSearchMounted] = useState(false);
+  const [settingsMounted, setSettingsMounted] = useState(false);
+  const [sqlLabMounted, setSqlLabMounted] = useState(false);
+  useEffect(() => { if (aiOpen) setAiMounted(true); }, [aiOpen]);
+  useEffect(() => { if (searchOpen) setSearchMounted(true); }, [searchOpen]);
+  useEffect(() => { if (settingsOpen) setSettingsMounted(true); }, [settingsOpen]);
+  useEffect(() => { if (sqlLabOpen) setSqlLabMounted(true); }, [sqlLabOpen]);
   const sidebarWidth = sidebarOpen ? SIDEBAR_EXPANDED : SIDEBAR_COLLAPSED;
-  const location = useLocation();
   const navigate = useNavigate();
 
   const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
@@ -77,15 +92,18 @@ export default function AppShell() {
         initialTab: e.detail?.initialTab,
       });
     };
+    const onSqlLab = () => setSqlLabOpen(true);
     window.addEventListener('fyntrac:open:report', onReport);
     window.addEventListener('fyntrac:open:dataset', onDataset);
     window.addEventListener('fyntrac:open:metric', onMetric);
     window.addEventListener('fyntrac:open:recon', onRecon);
+    window.addEventListener('fyntrac:open:sqllab', onSqlLab);
     return () => {
       window.removeEventListener('fyntrac:open:report', onReport);
       window.removeEventListener('fyntrac:open:dataset', onDataset);
       window.removeEventListener('fyntrac:open:metric', onMetric);
       window.removeEventListener('fyntrac:open:recon', onRecon);
+      window.removeEventListener('fyntrac:open:sqllab', onSqlLab);
     };
   }, [navigate]);
 
@@ -114,54 +132,69 @@ export default function AppShell() {
           sx={{
             flex: 1,
             overflow: 'auto',
-            bgcolor: 'background.default',
+            bgcolor: '#f0f0f7',
             mt: `${TOPBAR_HEIGHT}px`,
-            p: 3,
+            p: 1,
           }}
         >
-          <Box key={location.pathname} className="fyntrac-fade-in">
+          <Box
+            sx={{
+              bgcolor: '#ffffff',
+              minHeight: '100%',
+              p: 3,
+            }}
+          >
+            {/* No key-remount and no opacity-0 fade here: forcing the wrapper
+                to unmount and re-enter from opacity:0 on every navigation
+                produced a blank frame (the flicker). Let React swap the route
+                component in place so the new page paints immediately. */}
             <Outlet />
           </Box>
         </Box>
       </Box>
 
-      {/* Global drawers/modals */}
-      <AIChatDrawer
-        open={aiOpen}
-        onClose={() => { setAiOpen(false); setAiSeedPrompt(''); }}
-        initialPrompt={aiSeedPrompt}
-        seedKey={aiSeedKey}
-      />
-      <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
+      {/* Global drawers/modals — lazy-loaded on first use */}
+      <Suspense fallback={null}>
+        {aiMounted && (
+          <AIChatDrawer
+            open={aiOpen}
+            onClose={() => { setAiOpen(false); setAiSeedPrompt(''); }}
+            initialPrompt={aiSeedPrompt}
+            seedKey={aiSeedKey}
+          />
+        )}
+        {searchMounted && <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />}
+        {settingsMounted && <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />}
 
-      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        {reportModal && (
+          <ReportPreviewDialog
+            open
+            reportId={reportModal.id}
+            isNew={reportModal.isNew}
+            onClose={() => setReportModal(null)}
+          />
+        )}
+        {datasetModal && (
+          <DatasetPreviewDialog
+            open
+            datasetId={datasetModal.id}
+            isNew={datasetModal.isNew}
+            onClose={() => setDatasetModal(null)}
+          />
+        )}
+        {reconModal && (
+          <ReconPreviewDialog
+            open
+            reconId={reconModal.id}
+            isNew={reconModal.isNew}
+            initialTab={reconModal.initialTab}
+            onClose={() => setReconModal(null)}
+            onSaved={() => window.dispatchEvent(new CustomEvent('fyntrac:recon:saved'))}
+          />
+        )}
 
-      {reportModal && (
-        <ReportPreviewDialog
-          open
-          reportId={reportModal.id}
-          isNew={reportModal.isNew}
-          onClose={() => setReportModal(null)}
-        />
-      )}
-      {datasetModal && (
-        <DatasetPreviewDialog
-          open
-          datasetId={datasetModal.id}
-          isNew={datasetModal.isNew}
-          onClose={() => setDatasetModal(null)}
-        />
-      )}
-      {reconModal && (
-        <ReconPreviewDialog
-          open
-          reconId={reconModal.id}
-          isNew={reconModal.isNew}
-          initialTab={reconModal.initialTab}
-          onClose={() => setReconModal(null)}
-          onSaved={() => window.dispatchEvent(new CustomEvent('fyntrac:recon:saved'))}
-        />
-      )}
+        {sqlLabMounted && <SqlLabDialog open={sqlLabOpen} onClose={() => setSqlLabOpen(false)} />}
+      </Suspense>
     </Box>
   );
 }

@@ -2,9 +2,11 @@ import React, { useMemo } from 'react';
 import { PieChart as XPieChart } from '@mui/x-charts/PieChart';
 import { Box, Typography } from '@mui/material';
 import useFilterStore from '../../store/filterStore';
-import { CHART_COLORS, CHART_HEIGHT } from './_chartColors';
+import { CHART_HEIGHT } from './_chartColors';
+import { paletteColors, legendSlot } from './_displayHelpers';
 
-export default function PieChart({ data = [], xField, yFields = [], onPointClick, height, compact = false }) {
+export default function PieChart({ data = [], xField, yFields = [], onPointClick, height, compact = false, palette, legend, dataLabels }) {
+  const colors = paletteColors(palette);
   const valueField = yFields[0] || 'value';
   const setFilter = useFilterStore((s) => s.setFilter);
 
@@ -57,18 +59,19 @@ export default function PieChart({ data = [], xField, yFields = [], onPointClick
       )}
       <XPieChart
         series={[{
-          data: slices.map((s, i) => ({ id: s.id, value: s.value, label: s.label, color: CHART_COLORS[i % CHART_COLORS.length] })),
+          data: slices.map((s, i) => ({ id: s.id, value: s.value, label: s.label, color: colors[i % colors.length] })),
           innerRadius: 0,
           outerRadius: '85%',
           paddingAngle: 1,
           cornerRadius: 2,
+          arcLabel: dataLabels ? 'value' : undefined,
           highlightScope: { faded: 'global', highlighted: 'item' },
         }]}
         height={hasNegatives ? chartH - 28 : chartH}
         margin={{ top: 8, right: 8, bottom: 8, left: 8 }}
         onItemClick={handleItemClick}
         slotProps={{
-          legend: compact ? { hidden: true } : { labelStyle: { fontSize: 11 } },
+          legend: compact ? { hidden: true } : legendSlot(legend),
         }}
       />
     </Box>

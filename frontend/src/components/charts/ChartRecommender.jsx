@@ -37,7 +37,7 @@ function isTimey(k) { return /(date|month|day|quarter|year|period|yyyymm|yyyy_mm
  * Smart heuristic — given the data shape (inferred X + Y[]) and column names,
  * suggest the top-3 most useful layouts for the question being asked.
  */
-function recommend({ data, x, y, allKeys }) {
+export function recommend({ data, x, y, allKeys }) {
   const numMetrics = (y || []).length;
   const hasX = !!x;
   const hasTime = isTimey(x);

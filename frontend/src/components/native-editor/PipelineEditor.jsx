@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography, FormControl, InputLabel, Select, MenuItem, CircularProgress } from '@mui/material';
+import { Box, Typography, CircularProgress } from '@mui/material';
+import SearchSelect from '../shared/SearchSelect';
 import MonacoEditor from '@monaco-editor/react';
 import AIQuerySuggestions from '../ai/AIQuerySuggestions';
 import VariablePanel from './VariablePanel';
@@ -32,20 +33,14 @@ export default function PipelineEditor({
     <Box>
       {/* Collection selector */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-        <FormControl size="small" sx={{ minWidth: 220 }}>
-          <InputLabel>Collection</InputLabel>
-          <Select
-            label="Collection"
-            value={collection}
-            onChange={(e) => onCollectionChange(e.target.value)}
-            disabled={loading}
-            startAdornment={loading ? <CircularProgress size={14} sx={{ mr: 1 }} /> : null}
-          >
-            {collections.map((c) => (
-              <MenuItem key={c} value={c}>{c}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        <SearchSelect
+          value={collection}
+          onChange={onCollectionChange}
+          options={collections.map((c) => ({ value: c, label: c }))}
+          label="Collection"
+          width={220}
+          disabled={loading}
+        />
       </Box>
 
       {/* AI suggestions */}

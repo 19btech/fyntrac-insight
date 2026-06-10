@@ -1,106 +1,112 @@
 import React from 'react';
-import { Box, Typography, Chip, Stack } from '@mui/material';
+import { Box, Typography, Chip, Stack, Card, CardActionArea, Fade } from '@mui/material';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 
-/**
- * Reusable card used across the Reports/Dashboards/Collections/Models lists.
- *
- * Visual pattern:
- *   ┌────────────────────────────────────┐
- *   │  [ Category ]                      │
- *   │                                    │
- *   │  Title (bold)                      │
- *   │  Description (muted, 2-line clamp) │
- *   │                                    │
- *   │  View Report →           [actions] │
- *   └────────────────────────────────────┘
- *
- * Hover: lifts slightly, soft shadow, border darkens.
- * Selected: indigo border + light tint background.
- */
 export default function EntityCard({
   category,
   title,
   description,
-  ctaLabel = 'View Report',
+  ctaLabel = 'Configure',
   selected = false,
   onClick,
   actions,
+  index = 0,
 }) {
   return (
-    <Box
-      onClick={onClick}
-      sx={{
-        position: 'relative',
-        bgcolor: selected ? '#eef2ff' : 'background.paper',
-        border: '1px solid',
-        borderColor: selected ? '#a5b4fc' : 'divider',
-        borderRadius: 2,
-        p: 2.5,
-        cursor: onClick ? 'pointer' : 'default',
-        transition: 'border-color 180ms ease, box-shadow 200ms ease, transform 200ms ease, background-color 180ms ease',
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: 168,
-        '&:hover': onClick ? {
-          borderColor: '#cbd5e1',
-          boxShadow: '0 6px 16px rgba(15,23,42,0.08), 0 2px 4px rgba(15,23,42,0.04)',
-          transform: 'translateY(-2px)',
-        } : {},
-      }}
-    >
-      {actions && (
-        <Box sx={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 0.5 }}>
-          {actions}
-        </Box>
-      )}
-
-      {category && (
-        <Chip
-          label={category}
-          size="small"
-          sx={{
-            alignSelf: 'flex-start',
-            bgcolor: '#f1f5f9',
-            color: '#475569',
-            fontWeight: 500,
-            fontSize: '0.7rem',
-            height: 22,
-            borderRadius: 1,
-            mb: 1.5,
-          }}
-        />
-      )}
-
-      <Typography
-        variant="body1"
-        sx={{ fontWeight: 700, fontSize: '1rem', color: 'text.primary', mb: 0.5, pr: actions ? 4 : 0 }}
-        noWrap
-      >
-        {title}
-      </Typography>
-
-      <Typography
-        variant="body2"
-        color="text.secondary"
+    <Fade in timeout={(index + 1) * 300}>
+      <Card
+        elevation={0}
         sx={{
-          flex: 1,
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-          mb: 1.5,
+          position: 'relative',
+          borderRadius: '16px',
+          border: '1px solid',
+          borderColor: selected ? 'primary.main' : '#eeeeee',
+          bgcolor: selected ? '#eff6ff' : '#FFFFFF',
+          width: '100%',
+          height: '100%',
+          transition: 'all 0.3s ease-in-out',
+          // Explicit hover (overrides the generic theme MuiCard hover) so the
+          // card lifts, casts a soft shadow, gains a brand border and the
+          // light-blue tint background per the design spec.
+          '&:hover': {
+            transform: 'translateY(-4px)',
+            boxShadow: '0 12px 24px -10px rgba(0, 0, 0, 0.1)',
+            borderColor: 'primary.main',
+            bgcolor: '#eff6ff',
+          },
         }}
       >
-        {description || ' '}
-      </Typography>
+        {actions && (
+          <Box sx={{ position: 'absolute', top: 8, right: 8, zIndex: 1, display: 'flex', gap: 0.5 }}>
+            {actions}
+          </Box>
+        )}
+        <CardActionArea
+          onClick={onClick}
+          sx={{
+            height: '100%',
+            p: 3,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            '& .MuiCardActionArea-focusHighlight': { bgcolor: 'transparent' },
+          }}
+        >
+          <Box sx={{ width: '100%' }}>
+            {category && (
+              <Chip
+                label={category}
+                size="small"
+                sx={{
+                  // Explicit values override the theme's global MuiChip
+                  // styleOverrides (which force 22px / 0.75rem / radius 6) so
+                  // this chip matches the spec: 24px tall, 0.8125rem, pill.
+                  bgcolor: 'grey.100',
+                  fontWeight: 600,
+                  color: 'text.secondary',
+                  fontSize: '0.8125rem',
+                  height: 24,
+                  borderRadius: '9999px',
+                  mb: 2,
+                }}
+              />
+            )}
+            <Typography
+              variant="h6"
+              gutterBottom
+              sx={{
+                fontWeight: 700,
+                lineHeight: 1.3,
+                color: 'text.primary',
+                pr: actions ? 4 : 0,
+              }}
+            >
+              {title}
+            </Typography>
+            <Typography
+              variant="body2"
+              sx={{
+                fontSize: '0.875rem',
+                color: 'text.secondary',
+                lineHeight: 1.6,
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
+              }}
+            >
+              {description || ' '}
+            </Typography>
+          </Box>
 
-      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: '#4f46e5' }}>
-        <Typography variant="body2" sx={{ fontWeight: 600, color: '#4f46e5' }}>
-          {ctaLabel}
-        </Typography>
-        <ArrowForwardIcon sx={{ fontSize: 16 }} />
-      </Stack>
-    </Box>
+          <Stack direction="row" alignItems="center" sx={{ mt: 3, color: 'primary.main' }}>
+            <Typography variant="button" sx={{ fontSize: '0.75rem', fontWeight: 700, color: 'primary.main' }}>
+              {ctaLabel}
+            </Typography>
+            <ArrowForwardIcon sx={{ fontSize: 16, ml: 1 }} />
+          </Stack>
+        </CardActionArea>
+      </Card>
+    </Fade>
   );
 }

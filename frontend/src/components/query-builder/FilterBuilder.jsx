@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Box, Button, Select, MenuItem, TextField, FormControl, InputLabel, IconButton, Typography,
+  Box, Button, TextField, MenuItem, IconButton, Typography,
   Chip, Tooltip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -51,12 +51,16 @@ function FilterRow({ filter, collection, extraFields, onChange, onDelete }) {
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5, flexWrap: 'wrap' }}>
       <FieldPicker collection={collection} value={filter.field} onChange={(v) => onChange({ ...filter, field: v })} extraFields={extraFields} />
-      <FormControl size="small" sx={{ minWidth: 140 }}>
-        <InputLabel>Operator</InputLabel>
-        <Select label="Operator" value={filter.operator} onChange={(e) => onChange({ ...filter, operator: e.target.value })}>
-          {OPERATORS.map((op) => <MenuItem key={op.value} value={op.value}>{op.label}</MenuItem>)}
-        </Select>
-      </FormControl>
+      <TextField
+        select size="small" label="Operator"
+        value={filter.operator || '$eq'}
+        onChange={(e) => onChange({ ...filter, operator: e.target.value })}
+        sx={{ width: 160, '& .MuiOutlinedInput-root': { borderRadius: '16px' } }}
+      >
+        {OPERATORS.map((op) => (
+          <MenuItem key={op.value} value={op.value}>{op.label}</MenuItem>
+        ))}
+      </TextField>
       {filter.operator !== '$exists' && (
         <FilterValueInput
           collection={collection}
@@ -102,10 +106,6 @@ export default function FilterBuilder({ collection, filters, onChange, extraFiel
   );
 }
 
-/**
- * Build a $match object for a list of filter rows. Saved-filter rows contribute
- * their pre-compiled $match payload (merged via $and to avoid key collisions).
- */
 export function buildMatchStage(filters) {
   const ands = [];
   const matchObj = {};

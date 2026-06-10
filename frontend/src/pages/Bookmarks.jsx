@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Box, Typography, Paper, List, ListItem, ListItemButton, ListItemIcon,
-  ListItemText, IconButton, Chip, CircularProgress, Alert, Snackbar,
+  ListItemText, IconButton, Chip, CircularProgress, Snackbar,
 } from '@mui/material';
 import StarIcon from '@mui/icons-material/Star';
 import DashboardIcon from '@mui/icons-material/Dashboard';
@@ -11,6 +11,7 @@ import FunctionsIcon from '@mui/icons-material/Functions';
 import FolderIcon from '@mui/icons-material/Folder';
 import { useNavigate } from 'react-router-dom';
 import api from '../hooks/useQuery';
+import AppToast from '../components/shared/AppToast';
 
 const ICONS = {
   dashboard: <DashboardIcon fontSize="small" />,
@@ -69,7 +70,7 @@ export default function Bookmarks() {
         <StarIcon sx={{ verticalAlign: 'middle', mr: 1, color: '#f59e0b' }} />
         Bookmarks
       </Typography>
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      <AppToast open={!!error} onClose={() => setError('')} message={error} severity="error" />
       <Paper>
         {items.length === 0 ? (
           <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
@@ -100,24 +101,7 @@ export default function Bookmarks() {
         )}
       </Paper>
 
-      <Snackbar
-        open={toast.open}
-        onClose={() => setToast((t) => ({ ...t, open: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        autoHideDuration={3000}
-      >
-        <Alert
-          severity={toast.ok ? 'success' : 'error'}
-          variant="filled"
-          icon={false}
-          onClose={() => setToast((t) => ({ ...t, open: false }))}
-          sx={toast.ok
-            ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', '& .MuiAlert-action': { color: '#166534' } }
-            : { bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 600, border: '1px solid #fecaca', '& .MuiAlert-action': { color: '#991b1b' } }}
-        >
-          {toast.msg}
-        </Alert>
-      </Snackbar>
+      <AppToast open={toast.open} onClose={() => setToast((t) => ({ ...t, open: false }))} message={toast.msg} severity={toast.ok ? 'success' : 'error'} />
     </Box>
   );
 }

@@ -80,6 +80,26 @@ router.post('/source/columns', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/recons/preview-match { sourceA, sourceB, mapping, options }
+// Live dry-run for the mapping step — returns match counts WITHOUT saving a
+// run. Sampled to the first N rows per side so it stays fast on huge sources;
+// the result is an estimate, surfaced as such in the UI.
+const DEFAULT_PREVIEW_LIMIT = 200;
+router.post('/preview-match', async (req, res) => {
+  try {
+    const { sourceA, sourceB, mapping, options } = req.body || {};
+    if (!sourceA?.kind || !sourceB?.kind) return res.status(400).json({ error: 'sourceA and sourceB required' });
+    const keyPairs = (mapping?.keys || []).filter((k) => k.a && k.b);
+    if (keyPairs.length === 0) return res.status(400).json({ error: 'Map at least one key pair first' });
+    const out = await reconService.previewMatch(
+      { sourceA, sourceB, mapping, options: options || {} },
+      req.user,
+      { limitPerSide: DEFAULT_PREVIEW_LIMIT },
+    );
+    res.json(out);
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
 // POST /api/recons/suggest-mapping { sourceA, sourceB } → { keys, measures, attributes }
 router.post('/suggest-mapping', async (req, res) => {
   try {
@@ -250,7 +270,7 @@ router.get('/runs/:runId/export', async (req, res) => {
     if (status) rows = rows.filter((r) => r.status === status);
 
     const measureKeys = Object.keys(run.summary?.totals || {});
-    const cols = ['status', 'key', 'category', 'note', 'age', 'attr_issues'];
+    const cols = ['status', 'key', 'break_status', 'assignee', 'due_date', 'category', 'note', 'age', 'attr_issues'];
     for (const m of measureKeys) cols.push(`${m}_a`, `${m}_b`, `${m}_diff`);
 
     const escape = (v) => {
@@ -264,7 +284,8 @@ router.get('/runs/:runId/export', async (req, res) => {
       const attrText = Array.isArray(r.attrIssues) && r.attrIssues.length
         ? r.attrIssues.map((x) => `${x.field}: ${x.a} \u2260 ${x.b}`).join(' | ')
         : '';
-      const row = [r.status, r.key, r.category || '', r.note || '', r.age ?? '', attrText];
+      const dueStr = r.dueDate ? new Date(r.dueDate).toISOString().slice(0, 10) : '';
+      const row = [r.status, r.key, r.breakStatus || '', r.assignee || '', dueStr, r.category || '', r.note || '', r.age ?? '', attrText];
       for (const m of measureKeys) row.push(a[m] ?? '', b[m] ?? '', d[m]?.diff ?? '');
       lines.push(row.map(escape).join(','));
     }
@@ -280,7 +301,7 @@ router.get('/runs/:runId/export', async (req, res) => {
 // status is supplied (a single key may appear in only one bucket per run).
 router.patch('/runs/:runId/row', async (req, res) => {
   try {
-    const { key, status, category, note } = req.body || {};
+    const { key, status, category, note, assignee, breakStatus, dueDate } = req.body || {};
     if (key == null) return res.status(400).json({ error: 'key required' });
     const run = await req.model('ReconRun').findOne({ _id: req.params.runId, tenantId: req.user.tenantId });
     if (!run) return res.status(404).json({ error: 'Run not found' });
@@ -296,6 +317,11 @@ router.patch('/runs/:runId/row', async (req, res) => {
       row.noteBy = req.user.userId;
       row.noteAt = new Date();
     }
+    // Break-management workflow fields (Mixed row schema — no migration needed).
+    if (assignee !== undefined) row.assignee = assignee || '';
+    if (breakStatus !== undefined) row.breakStatus = breakStatus || '';
+    if (dueDate !== undefined) row.dueDate = dueDate || null;
+
     run.rows[idx] = row;
     run.markModified('rows');
     await run.save();
@@ -328,11 +354,11 @@ router.post('/runs/:runId/signoff', async (req, res) => {
 async function displayName(side, user) {
   try {
     if (side.kind === 'dataset') {
-      const ds = await req.model('SavedModel').findOne({ _id: side.refId, tenantId: user.tenantId }).select('name');
+      const ds = await user.getModel('SavedModel').findOne({ _id: side.refId, tenantId: user.tenantId }).select('name');
       return ds?.name;
     }
     if (side.kind === 'csv') {
-      const f = await req.model('ReconCsvFile').findOne({ _id: side.refId, tenantId: user.tenantId }).select('filename');
+      const f = await user.getModel('ReconCsvFile').findOne({ _id: side.refId, tenantId: user.tenantId }).select('filename');
       return f?.filename;
     }
   } catch (_) { /* noop */ }

@@ -4,7 +4,7 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import SaveIcon from '@mui/icons-material/Save';
+import SaveIcon from '@mui/icons-material/TurnedIn';
 import CodeIcon from '@mui/icons-material/Code';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import AddToPhotosIcon from '@mui/icons-material/AddToPhotos';

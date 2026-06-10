@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "@assistant-ui/react": "^0.14.16",
+    "@assistant-ui/react-markdown": "^0.14.2",
     "@emotion/react": "^11.13.5",
     "@emotion/styled": "^11.13.5",
     "@monaco-editor/react": "^4.6.0",
@@ -10,6 +12,7 @@
     "@mui/material": "^7.3.4",
     "@mui/system": "^7.3.4",
     "@mui/x-charts": "^7.29.1",
+    "@mui/x-data-grid": "^9.4.0",
     "axios": "^1.6.2",
     "html2canvas": "^1.4.1",
     "json2csv": "^6.0.0-alpha.2",

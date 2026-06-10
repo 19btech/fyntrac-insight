@@ -366,7 +366,8 @@ async function executePipeline(collectionName, rawPipeline, user) {
   return { data: cleanData, columns: cleanColumns, executionTime };
 }
 
-// Collections we never want surfaced in pickers, AI grounding, or dataset builder.
+// Internal/system collections never surfaced ANYWHERE (pickers, AI grounding,
+// dataset builder, AND SQL Lab) — they hold config/sequences, not data.
 const EXCLUDED_COLLECTIONS = new Set([
   'settings',
   'modelfiles',
@@ -375,7 +376,14 @@ const EXCLUDED_COLLECTIONS = new Set([
   'attributes',
   'eventconfigurations',
 ]);
-function isExcludedCollection(name) {
+
+// Collections hidden from the source pickers (Datasets, Reports, Dashboards,
+// KPIs, AI grounding) but still queryable in SQL Lab. EventHistory is a raw
+// event log — useful for ad-hoc SQL, noise as a modelling source.
+const PICKER_ONLY_EXCLUDED = new Set(['eventhistory']);
+
+// True for system/internal collections — excluded everywhere, SQL Lab included.
+function isSystemExcludedCollection(name) {
   if (!name) return true;
   if (name.startsWith('system.')) return true;
   if (name.startsWith('_')) return true;
@@ -383,6 +391,12 @@ function isExcludedCollection(name) {
   if (EXCLUDED_COLLECTIONS.has(lower)) return true;
   if (lower.includes('sequences')) return true;
   return false;
+}
+
+// True for collections hidden from the source pickers (system + picker-only).
+function isExcludedCollection(name) {
+  if (isSystemExcludedCollection(name)) return true;
+  return PICKER_ONLY_EXCLUDED.has(String(name).toLowerCase());
 }
 
 // Field names we never want offered in pickers (filter / group-by / sort /
@@ -439,12 +453,23 @@ function isNumericWrapperField(fullKey) {
 }
 
 /**
- * List all collection names available in the target database for a given tenant.
+ * List collections for the source PICKERS (Datasets, Reports, Dashboards,
+ * KPIs, AI grounding). Hides system + picker-only collections (e.g. EventHistory).
  */
 async function getCollections(user) {
   const db = await getTargetDb((user && user.tenantId) || 'master');
   const cols = await db.listCollections().toArray();
   return cols.map((c) => c.name).filter((n) => !isExcludedCollection(n)).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * List collections for SQL Lab — hides only system/internal collections, so
+ * picker-only ones like EventHistory remain queryable here.
+ */
+async function getSqlCollections(user) {
+  const db = await getTargetDb((user && user.tenantId) || 'master');
+  const cols = await db.listCollections().toArray();
+  return cols.map((c) => c.name).filter((n) => !isSystemExcludedCollection(n)).sort((a, b) => a.localeCompare(b));
 }
 
 /**
@@ -661,4 +686,115 @@ function resolveType(typesSet) {
   return 'string';
 }
 
-module.exports = { executePipeline, getCollections, inferSchema, inferSchemaFromPipeline, connectTarget, getTargetDb };
+// Cache of `lowerFieldName -> canonicalFieldName` per tenant+collection. Lets
+// the SQL engine rewrite pushed-down predicate/projection columns to the exact
+// Mongo field casing (Mongo field names are case-sensitive, DuckDB isn't).
+const FIELD_NAMES_TTL_MS = 60_000;
+const fieldNamesCache = new Map(); // `${tenant}::${collection}` -> { ts, map }
+
+async function getFieldNameMap(collectionName, user) {
+  const key = `${user?.tenantId || '__'}::${String(collectionName).toLowerCase()}`;
+  const cached = fieldNamesCache.get(key);
+  const now = Date.now();
+  if (cached && now - cached.ts < FIELD_NAMES_TTL_MS) return cached.map;
+  const map = new Map();
+  try {
+    const fields = await inferSchema(collectionName, user);
+    for (const f of fields) {
+      if (!f?.name) continue;
+      const lower = f.name.toLowerCase();
+      if (!map.has(lower)) map.set(lower, f.name);
+    }
+  } catch {
+    // No schema -> empty map; the engine falls back to no pushdown (still correct).
+  }
+  fieldNamesCache.set(key, { ts: now, map });
+  return map;
+}
+
+/**
+ * Resolve a user-supplied table name (any case) to the real target collection
+ * name for SQL Lab. Returns null if it doesn't exist or is a system/internal
+ * collection. Uses the SQL collection list, so picker-only collections like
+ * EventHistory remain queryable here (just hidden from the modelling pickers).
+ */
+async function resolveCollection(name, user) {
+  if (!name) return null;
+  const all = await getSqlCollections(user); // hides only system/internal collections
+  const lower = String(name).toLowerCase();
+  return all.find((c) => c.toLowerCase() === lower) || null;
+}
+
+/**
+ * Return a LIVE aggregation cursor (not materialized) for the SQL engine to
+ * stream from. Always prepends the tenant/RLS security stage + the standard
+ * expansion/coercion stages, then any caller-supplied pushdown stages
+ * (e.g. a pre-filter $match / $project). Streaming keeps Node memory flat
+ * even when feeding millions of rows into DuckDB.
+ */
+async function getSecuredCursor(collectionName, extraStages, user) {
+  const db = await getTargetDb(user.tenantId);
+  const securityStage = buildSecurityFilter(user);
+  const attributeTypes = await getAttributeTypes(user);
+  const customByTable = await getCustomTableTypes(user);
+  const customColumnTypes = getCustomTableColumnTypes(collectionName, customByTable);
+  const pipeline = [
+    securityStage,
+    ...buildExpansionStages(attributeTypes, customColumnTypes),
+    ...(Array.isArray(extraStages) ? extraStages : []),
+  ];
+  return db.collection(collectionName).aggregate(pipeline, { allowDiskUse: true });
+}
+
+/**
+ * Count documents that survive the security filter + an optional pushed-down
+ * $match. Used to (a) show an estimated row count before an export runs and
+ * (b) warn when an unfiltered query would scan a very large collection.
+ */
+async function countSecured(collectionName, matchStage, user) {
+  const db = await getTargetDb(user.tenantId);
+  const securityStage = buildSecurityFilter(user);
+  const pipeline = [securityStage];
+  if (matchStage && Object.keys(matchStage.$match || {}).length) pipeline.push(matchStage);
+  pipeline.push({ $count: 'n' });
+  const r = await db
+    .collection(collectionName)
+    .aggregate(pipeline, { allowDiskUse: true, maxTimeMS: 20000 })
+    .toArray();
+  return r.length ? r[0].n : 0;
+}
+
+/**
+ * Strip system / hidden fields from an already-normalized row using the same
+ * rules executePipeline applies, so streamed SQL data matches what the rest
+ * of the app sees (no tenantId, _class, internal upload pointers, etc.).
+ */
+function cleanDoc(collectionName, row) {
+  const colHidden = COLLECTION_HIDDEN_FIELDS[String(collectionName).toLowerCase()] || null;
+  const out = {};
+  for (const [k, v] of Object.entries(row)) {
+    if (k.startsWith('_')) continue;
+    if (k === 'tenantId') continue;
+    const leaf = k.toLowerCase();
+    if (HIDDEN_FIELD_NAMES.has(leaf)) continue;
+    if (colHidden && colHidden.has(leaf)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+module.exports = {
+  executePipeline,
+  getCollections,
+  getSqlCollections,
+  getFieldNameMap,
+  inferSchema,
+  inferSchemaFromPipeline,
+  connectTarget,
+  getTargetDb,
+  resolveCollection,
+  getSecuredCursor,
+  countSecured,
+  cleanDoc,
+  normalizeBson,
+};

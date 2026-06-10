@@ -10,7 +10,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
  */
 
 const DEFAULT_MODELS = {
-  anthropic: 'claude-sonnet-4-20250514',
+  anthropic: 'claude-sonnet-4-6',
   openai: 'gpt-4o-mini',
   gemini: 'gemini-2.0-flash',
 };
@@ -21,11 +21,9 @@ const DEFAULT_MODELS = {
  * (Anthropic requires fallback; OpenAI + Gemini support live listing).
  */
 const ANTHROPIC_MODELS = [
-  { id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
-  { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
-  { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
-  { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
-  { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
+  { id: 'claude-opus-4-8', name: 'Claude Opus 4.8' },
+  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
+  { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
 ];
 
 function clientFor(provider, apiKey) {
@@ -201,6 +199,47 @@ const TOOL_DESC =
   'average, max, min, top-N, or any other aggregate that requires the full dataset. ' +
   'Do NOT use this for questions that can be answered from the sample rows already in context.';
 
+const RUN_SQL_DESC =
+  'Run a read-only SQL SELECT against the user\'s data to ANSWER a data question. ' +
+  'Tables are the MongoDB collections in the catalog; columns are their fields. ' +
+  'Dialect: DuckDB (PostgreSQL-like) — JOINs, CTEs (WITH), CASE, window functions allowed. ' +
+  'Only SELECT/WITH is permitted (no writes). The FULL result is shown to the user as an interactive ' +
+  'table, so after calling this give a brief 1–2 sentence interpretation — do NOT repeat all the rows. ' +
+  'Use for "what / how many / total / compare / trend / top-N" questions.';
+
+const PROPOSE_KPI_DESC =
+  'Propose a KPI for the user to review and create. The user sees a confirmation card and decides ' +
+  'whether to create it (you do NOT create it directly). Provide a name, an optional description, the ' +
+  'source collection, and the aggregation. ' +
+  'ANALYSE THE REQUEST FIRST: if the KPI implies a SUBSET of rows (e.g. a specific status, event type, ' +
+  'product, region, or "active"/"open"/"EOD" qualifier), include `filters` to scope it — do not filter ' +
+  'when the KPI is genuinely over all rows. Time-over-time intelligence (current vs previous period) is ' +
+  'added automatically, so you do not need to specify it. Use when the user asks to create/build a KPI or metric.';
+
+const SQL_PROP = { sql: { type: 'string', description: 'A single read-only SQL SELECT statement' } };
+const KPI_PROPS = {
+  name: { type: 'string', description: 'Short KPI name' },
+  description: { type: 'string', description: 'Optional plain-English description' },
+  collection: { type: 'string', description: 'Source MongoDB collection name' },
+  agg: { type: 'string', description: 'Aggregation: one of $sum, $avg, $count, $min, $max' },
+  field: { type: 'string', description: 'Numeric field to aggregate (omit for $count)' },
+  filters: {
+    type: 'array',
+    description: 'Optional row filters that scope the KPI. Add when the request implies a subset. '
+      + 'Each item: { field, operator, value }. operator ∈ $eq,$ne,$gt,$gte,$lt,$lte,$in,$regex. '
+      + 'For $in, value is a comma-separated list.',
+    items: {
+      type: 'object',
+      properties: {
+        field: { type: 'string', description: 'Field name to filter on' },
+        operator: { type: 'string', description: '$eq, $ne, $gt, $gte, $lt, $lte, $in, or $regex' },
+        value: { type: 'string', description: 'Comparison value (numbers as strings are fine)' },
+      },
+      required: ['field', 'operator', 'value'],
+    },
+  },
+};
+
 const ANTHROPIC_TOOLS = [
   {
     name: 'compute_aggregation',
@@ -217,6 +256,16 @@ const ANTHROPIC_TOOLS = [
       },
       required: ['collection', 'pipeline'],
     },
+  },
+  {
+    name: 'run_sql',
+    description: RUN_SQL_DESC,
+    input_schema: { type: 'object', properties: SQL_PROP, required: ['sql'] },
+  },
+  {
+    name: 'propose_kpi',
+    description: PROPOSE_KPI_DESC,
+    input_schema: { type: 'object', properties: KPI_PROPS, required: ['name', 'collection', 'agg'] },
   },
 ];
 
@@ -240,6 +289,14 @@ const OPENAI_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: { name: 'run_sql', description: RUN_SQL_DESC, parameters: { type: 'object', properties: SQL_PROP, required: ['sql'] } },
+  },
+  {
+    type: 'function',
+    function: { name: 'propose_kpi', description: PROPOSE_KPI_DESC, parameters: { type: 'object', properties: KPI_PROPS, required: ['name', 'collection', 'agg'] } },
+  },
 ];
 
 const GEMINI_TOOLS = [
@@ -252,14 +309,30 @@ const GEMINI_TOOLS = [
           type: 'object',
           properties: {
             collection: { type: 'string', description: 'MongoDB collection name to query' },
-            pipeline: { type: 'array', description: 'MongoDB aggregation pipeline stages' },
+            pipeline: { type: 'array', items: { type: 'object' }, description: 'MongoDB aggregation pipeline stages' },
           },
           required: ['collection', 'pipeline'],
         },
       },
+      { name: 'run_sql', description: RUN_SQL_DESC, parameters: { type: 'object', properties: SQL_PROP, required: ['sql'] } },
+      { name: 'propose_kpi', description: PROPOSE_KPI_DESC, parameters: { type: 'object', properties: KPI_PROPS, required: ['name', 'collection', 'agg'] } },
     ],
   },
 ];
+
+/**
+ * Wrap a client-renderable artifact as a fenced block injected into the text
+ * stream. The chat UI intercepts ```fyntrac-artifact``` blocks and renders them
+ * as rich inline cards (result tables, KPI-draft confirm cards, …).
+ */
+function artifactBlock(artifact) {
+  return `\n\n\`\`\`fyntrac-artifact\n${JSON.stringify(artifact)}\n\`\`\`\n\n`;
+}
+// Tool results may be { forModel, clientArtifact }. The model only needs the
+// compact `forModel`; the rich `clientArtifact` is streamed to the browser.
+function forModelOf(toolResult) {
+  return (toolResult && toolResult.forModel !== undefined) ? toolResult.forModel : toolResult;
+}
 
 /**
  * Agentic streaming chat with tool-calling support.
@@ -299,6 +372,7 @@ async function* streamChatWithTools({
       if (resp.stop_reason === 'tool_use') {
         const toolBlock = resp.content.find((b) => b.type === 'tool_use');
         const toolResult = await onToolCall(toolBlock.name, toolBlock.input);
+        if (toolResult && toolResult.clientArtifact) yield artifactBlock(toolResult.clientArtifact);
         anthropicMessages = [
           ...anthropicMessages,
           { role: 'assistant', content: resp.content },
@@ -307,7 +381,7 @@ async function* streamChatWithTools({
             content: [{
               type: 'tool_result',
               tool_use_id: toolBlock.id,
-              content: JSON.stringify(toolResult),
+              content: JSON.stringify(forModelOf(toolResult)),
             }],
           },
         ];
@@ -356,10 +430,11 @@ async function* streamChatWithTools({
         let input;
         try { input = JSON.parse(tc.function.arguments); } catch { input = {}; }
         const toolResult = await onToolCall(tc.function.name, input);
+        if (toolResult && toolResult.clientArtifact) yield artifactBlock(toolResult.clientArtifact);
         openaiMessages = [
           ...openaiMessages,
           { role: 'assistant', content: choice.message.content || null, tool_calls: choice.message.tool_calls },
-          { role: 'tool', tool_call_id: tc.id, content: JSON.stringify(toolResult) },
+          { role: 'tool', tool_call_id: tc.id, content: JSON.stringify(forModelOf(toolResult)) },
         ];
         continue;
       }
@@ -406,12 +481,13 @@ async function* streamChatWithTools({
       if (funcCallPart) {
         const { name, args } = funcCallPart.functionCall;
         const toolResult = await onToolCall(name, args);
+        if (toolResult && toolResult.clientArtifact) yield artifactBlock(toolResult.clientArtifact);
         geminiContents = [
           ...geminiContents,
           { role: 'model', parts: candidate.content.parts },
           {
             role: 'user',
-            parts: [{ functionResponse: { name, response: { output: JSON.stringify(toolResult) } } }],
+            parts: [{ functionResponse: { name, response: { output: JSON.stringify(forModelOf(toolResult)) } } }],
           },
         ];
         continue;

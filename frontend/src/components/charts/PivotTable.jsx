@@ -37,7 +37,7 @@ function applyConditionalFormat(value, rules = []) {
   return {};
 }
 
-export default function PivotTable({ data = [], rowField, columnField, valueField, agg = 'sum', conditionalFormat = [], height }) {
+export default function PivotTable({ data = [], rowField, columnField, valueField, agg = 'sum', conditionalFormat = [], height, sort }) {
   const { rows, columns, matrix, rowTotals, colTotals, grandTotal, tooLarge, rowCount, colCount } = useMemo(() => {
     if (!rowField || !columnField || !valueField || !data.length) {
       return { rows: [], columns: [], matrix: {}, rowTotals: {}, colTotals: {}, grandTotal: 0, tooLarge: false, rowCount: 0, colCount: 0 };
@@ -73,14 +73,34 @@ export default function PivotTable({ data = [], rowField, columnField, valueFiel
         grandTotal += Number(v) || 0;
       }
     }
-    return { rows, columns, matrix, rowTotals, colTotals, grandTotal, tooLarge: false, rowCount: 0, colCount: 0 };
-  }, [data, rowField, columnField, valueField, agg]);
+    // Apply the user's sort: by the row label when sorting on the row field,
+    // otherwise by each row's aggregated total. Default keeps alphabetical.
+    let orderedRows = rows;
+    if (sort && sort.field) {
+      const dir = String(sort.dir).toLowerCase() === 'asc' ? 1 : -1;
+      if (sort.field === rowField) {
+        orderedRows = [...rows].sort((a, b) => {
+          const an = Number(a);
+          const bn = Number(b);
+          if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * dir;
+          return String(a).localeCompare(String(b)) * dir;
+        });
+      } else {
+        orderedRows = [...rows].sort((a, b) => ((rowTotals[a] || 0) - (rowTotals[b] || 0)) * dir);
+      }
+    }
+
+    return { rows: orderedRows, columns, matrix, rowTotals, colTotals, grandTotal, tooLarge: false, rowCount: 0, colCount: 0 };
+  }, [data, rowField, columnField, valueField, agg, sort]);
 
   if (!rowField || !columnField || !valueField) {
+    const missing = [!rowField && 'Rows', !columnField && 'Columns', !valueField && 'Value'].filter(Boolean);
     return (
-      <Box sx={{ p: 2 }}>
-        <Typography variant="body2" color="text.secondary">
-          Pivot table requires rowField, columnField, and valueField.
+      <Box sx={{ p: 3, textAlign: 'center', color: 'text.secondary' }}>
+        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>Finish setting up the pivot</Typography>
+        <Typography variant="body2">
+          Open the <b>Data</b> tab in the visualization panel and assign a field to{' '}
+          <b>{missing.join(', ')}</b>. A pivot needs a row dimension, a column dimension to spread across, and a value to aggregate.
         </Typography>
       </Box>
     );

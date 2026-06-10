@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Box, Stack, FormControl, InputLabel, Select, MenuItem, Typography,
-} from '@mui/material';
-import VerifiedIcon from '@mui/icons-material/Verified';
+import { Box, Stack, Typography } from '@mui/material';
 import api from '../../hooks/useQuery';
 import CsvUploader from './CsvUploader';
+import SearchSelect from '../shared/SearchSelect';
 
 /**
  * Picks a side for a recon: a Dataset or an uploaded CSV.
@@ -26,8 +24,7 @@ export default function SourceSidePicker({ label, value, onChange }) {
     }
   }, [value?.refId, value?.kind]);
 
-  const change = (e) => {
-    const v = e.target.value;
+  const handleChange = (v) => {
     if (!v) return onChange(null);
     if (v.startsWith('ds:')) {
       const id = v.slice(3);
@@ -49,33 +46,30 @@ export default function SourceSidePicker({ label, value, onChange }) {
     ? (value.kind === 'dataset' ? `ds:${value.refId}` : `csv:${value.refId}`)
     : '';
 
+  const options = [
+    ...datasets.map((d) => ({
+      value: `ds:${d._id}`,
+      label: d.name,
+      description: d.verified ? 'Verified dataset' : 'Dataset',
+    })),
+    ...recentCsvs.map((c) => ({
+      value: `csv:${c._id}`,
+      label: c.filename,
+      description: 'Uploaded CSV',
+    })),
+  ];
+
   return (
     <Stack spacing={1.5}>
       <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{label}</Typography>
-      <FormControl size="small" fullWidth>
-        <InputLabel>Source</InputLabel>
-        <Select label="Source" value={selectVal} onChange={change}>
-          <MenuItem disabled value="__h_ds__" sx={{ opacity: 0.6, fontSize: '0.7rem', textTransform: 'uppercase' }}>
-            Datasets
-          </MenuItem>
-          {datasets.map((d) => (
-            <MenuItem key={`ds:${d._id}`} value={`ds:${d._id}`}>
-              <Stack direction="row" alignItems="center" spacing={1}>
-                {d.verified && <VerifiedIcon sx={{ fontSize: 14, color: '#16a34a' }} />}
-                <span>{d.name}</span>
-              </Stack>
-            </MenuItem>
-          ))}
-          {recentCsvs.length > 0 && (
-            <MenuItem disabled value="__h_csv__" sx={{ opacity: 0.6, fontSize: '0.7rem', textTransform: 'uppercase' }}>
-              Recent uploads
-            </MenuItem>
-          )}
-          {recentCsvs.map((c) => (
-            <MenuItem key={`csv:${c._id}`} value={`csv:${c._id}`}>{c.filename}</MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+      <SearchSelect
+        value={selectVal}
+        onChange={handleChange}
+        options={options}
+        label="Source"
+        placeholder="Search datasets & uploads…"
+        fullWidth
+      />
       <Box>
         <CsvUploader onUploaded={onUploaded} />
       </Box>

@@ -1,22 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Box, Typography, Button, Grid, Card, CardContent, IconButton, CardActionArea,
-  Dialog, DialogTitle, DialogContent, DialogActions, Skeleton, Tooltip, Alert, Snackbar,
+  Box, Typography, Button, Grid, Card, CardContent, IconButton, CardActionArea, Stack,
+  Dialog, DialogTitle, DialogContent, DialogActions, Skeleton, Tooltip, Snackbar,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import EditIcon from '@mui/icons-material/Edit';
 import VerifiedIcon from '@mui/icons-material/Verified';
-import PushPinIcon from '@mui/icons-material/PushPin';
-import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import JoinFullIcon from '@mui/icons-material/JoinFull';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
 import api from '../hooks/useQuery';
+import useDelayedFlag from '../hooks/useDelayedFlag';
 import EntityCard from '../components/shared/EntityCard';
+import ADD_BUTTON_SX from '../components/shared/addButtonSx';
 import DatasetPreviewDialog from '../components/datasets/DatasetPreviewDialog';
+import AppToast from '../components/shared/AppToast';
+import BrandedDialogTitle from '../components/shared/BrandedDialogTitle';
 
 function StarterGallery({ open, onClose, onPick }) {
   const tiles = [
@@ -27,7 +28,7 @@ function StarterGallery({ open, onClose, onPick }) {
   ];
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>How would you like to start?</DialogTitle>
+      <BrandedDialogTitle label="Dataset" title="How would you like to start?" onClose={onClose} />
       <DialogContent>
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
           {tiles.map((t) => (
@@ -49,7 +50,6 @@ function StarterGallery({ open, onClose, onPick }) {
           ))}
         </Grid>
       </DialogContent>
-      <DialogActions><Button onClick={onClose}>Cancel</Button></DialogActions>
     </Dialog>
   );
 }
@@ -62,7 +62,7 @@ function PickQuestionDialog({ open, onClose, onPick }) {
   }, [open]);
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Pick a report</DialogTitle>
+      <BrandedDialogTitle label="Dataset" title="Pick a report" onClose={onClose} />
       <DialogContent>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
           {questions.map((q) => (
@@ -73,15 +73,12 @@ function PickQuestionDialog({ open, onClose, onPick }) {
           {questions.length === 0 && <Typography color="text.secondary" variant="body2">No reports yet.</Typography>}
         </Box>
       </DialogContent>
-      <DialogActions><Button onClick={onClose}>Cancel</Button></DialogActions>
     </Dialog>
   );
 }
 
-function DatasetCard({ model, onEdit, onDelete, onTogglePin }) {
-  const stepCount = model.steps?.length || model.pipeline?.length || 0;
-  const subtitle = model.description
-    || `${model.sourceCollection || 'dataset'} · ${stepCount} step${stepCount === 1 ? '' : 's'}`;
+function DatasetCard({ model, onEdit, onDelete }) {
+  const subtitle = model.description || '';
   const titleNode = (
     <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
       <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{model.name}</Box>
@@ -100,25 +97,11 @@ function DatasetCard({ model, onEdit, onDelete, onTogglePin }) {
       ctaLabel="Open Dataset"
       onClick={() => onEdit(model)}
       actions={
-        <>
-          <Tooltip title={model.pinned ? 'Unpin' : 'Pin'}>
-            <IconButton size="small" onClick={(e) => { e.stopPropagation(); onTogglePin(model); }} sx={{ color: 'text.disabled', '&:hover': { color: 'text.secondary', bgcolor: 'action.hover' } }}>
-              {model.pinned
-                ? <PushPinIcon fontSize="small" sx={{ color: 'primary.main' }} />
-                : <PushPinOutlinedIcon fontSize="small" />}
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Edit">
-            <IconButton size="small" onClick={(e) => { e.stopPropagation(); onEdit(model); }} sx={{ color: 'text.disabled', '&:hover': { color: 'text.secondary', bgcolor: 'action.hover' } }}>
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete">
-            <IconButton size="small" onClick={(e) => { e.stopPropagation(); onDelete(model); }} sx={{ color: 'text.disabled', '&:hover': { color: 'text.secondary', bgcolor: 'action.hover' } }}>
-              <DeleteOutlineIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </>
+        <Tooltip title="Delete">
+          <IconButton size="small" onClick={(e) => { e.stopPropagation(); onDelete(model); }} sx={{ color: 'text.disabled', '&:hover': { color: 'text.secondary', bgcolor: 'action.hover' } }}>
+            <DeleteOutlineIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       }
     />
   );
@@ -128,6 +111,7 @@ export default function ModelsPage() {
   const navigate = useNavigate(); // kept for any external callers; modal handles in-page editing
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
+  const showSkeleton = useDelayedFlag(loading);
   const [loadError, setLoadError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [toast, setToast] = useState({ open: false, msg: '', ok: true });
@@ -165,15 +149,6 @@ export default function ModelsPage() {
       showToast(e?.response?.data?.error || 'Failed to delete dataset', false);
     }
   };
-  const togglePin = async (m) => {
-    try {
-      await api.put(`/models/${m._id}`, { pinned: !m.pinned });
-      reload();
-      showToast(m.pinned ? 'Dataset unpinned' : 'Dataset pinned');
-    } catch (e) {
-      showToast(e?.response?.data?.error || 'Failed to update dataset', false);
-    }
-  };
   const editModel = (m) => { setPreviewNew(false); setPreviewStarter(null); setPreviewId(m._id); };
 
   const handleStarterPick = (kind) => {
@@ -188,51 +163,43 @@ export default function ModelsPage() {
 
   return (
     <Box>
-      {loadError && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setLoadError('')}>{loadError}</Alert>
-      )}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+      <AppToast open={!!loadError} onClose={() => setLoadError('')} message={loadError} severity="error" />
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pt: 1.5, pl: 1.5, pb: 2, mb: 4, borderBottom: '1.5px solid rgba(148, 163, 184, 0.2)' }}>
         <Box>
-          <Typography variant="h2">Datasets</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Reusable data sources your team can build reports on top of.
-          </Typography>
+          <Typography variant="h5" sx={{ fontWeight: 600, letterSpacing: '-0.5px', color: 'text.primary' }}>Datasets</Typography>
         </Box>
         <Tooltip title="New Dataset">
           <IconButton
             onClick={() => { setPreviewId(null); setPreviewStarter(null); setPreviewNew(true); }}
-            sx={{
-              bgcolor: 'primary.main', color: '#fff', borderRadius: 2,
-              '&:hover': { bgcolor: 'primary.dark' },
-            }}
+            sx={ADD_BUTTON_SX}
           >
             <AddIcon />
           </IconButton>
         </Tooltip>
       </Box>
 
-      {loading && (
-        <Grid container spacing={2}>
-          {[1, 2, 3, 4].map((i) => (<Grid key={i} size={{ xs: 12, sm: 6, md: 4 }}><Skeleton variant="rounded" height={140} /></Grid>))}
+      {showSkeleton && (
+        <Grid container spacing={3}>
+          {[1, 2, 3, 4].map((i) => (<Grid key={i} size={{ xs: 12, md: 6, lg: 4 }}><Skeleton variant="rounded" height={200} /></Grid>))}
         </Grid>
       )}
+      {loading && !showSkeleton && <Box sx={{ minHeight: 200 }} />}
       {!loading && models.length === 0 && (
-        <Card variant="outlined" sx={{ p: 4, textAlign: 'center', mt: 4 }}>
-          <TableChartIcon sx={{ fontSize: 56, color: 'text.disabled' }} />
-          <Typography variant="h4" sx={{ mt: 1 }}>No datasets yet</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Create a reusable, curated data source your team can build reports on top of.
-          </Typography>
-          <Button variant="contained" onClick={() => { setPreviewId(null); setPreviewStarter(null); setPreviewNew(true); }}>
-            Create your first dataset
-          </Button>
+        <Card elevation={0} sx={{ textAlign: 'center', py: 10, px: 4, borderRadius: 4, border: '1px solid #E5E7EB', bgcolor: '#FFFFFF' }}>
+          <Stack alignItems="center" spacing={1.5}>
+            <TableChartIcon sx={{ fontSize: 40, color: '#94A3B8' }} />
+            <Typography sx={{ fontFamily: 'Inter', fontSize: '1rem', fontWeight: 600, color: '#64748B', textAlign: 'center' }}>No datasets to display</Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'Inter', fontSize: '0.875rem', fontWeight: 400, color: '#94A3B8', maxWidth: 340, textAlign: 'center' }}>
+              Use the + button above to create your first dataset.
+            </Typography>
+          </Stack>
         </Card>
       )}
       {!loading && models.length > 0 && (
-        <Grid container spacing={2}>
+        <Grid container spacing={3}>
           {models.map((m) => (
-            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={m._id}>
-              <DatasetCard model={m} onEdit={editModel} onDelete={setDeleteTarget} onTogglePin={togglePin} />
+            <Grid size={{ xs: 12, md: 6, lg: 4 }} key={m._id} sx={{ display: 'flex' }}>
+              <DatasetCard model={m} onEdit={editModel} onDelete={setDeleteTarget} />
             </Grid>
           ))}
         </Grid>
@@ -256,34 +223,16 @@ export default function ModelsPage() {
 
       {/* Delete confirmation dialog */}
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} maxWidth="xs">
-        <DialogTitle>Delete dataset?</DialogTitle>
+        <BrandedDialogTitle label="Dataset" title="Delete Dataset" onClose={() => setDeleteTarget(null)} />
         <DialogContent>
           <Typography>Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This cannot be undone.</Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
           <Button onClick={confirmDelete} color="error" variant="contained">Delete</Button>
         </DialogActions>
       </Dialog>
 
-      <Snackbar
-        open={toast.open}
-        onClose={() => setToast((t) => ({ ...t, open: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        autoHideDuration={3000}
-      >
-        <Alert
-          severity={toast.ok ? 'success' : 'error'}
-          variant="filled"
-          icon={false}
-          onClose={() => setToast((t) => ({ ...t, open: false }))}
-          sx={toast.ok
-            ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', '& .MuiAlert-action': { color: '#166534' } }
-            : { bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 600, border: '1px solid #fecaca', '& .MuiAlert-action': { color: '#991b1b' } }}
-        >
-          {toast.msg}
-        </Alert>
-      </Snackbar>
+      <AppToast open={toast.open} onClose={() => setToast((t) => ({ ...t, open: false }))} message={toast.msg} severity={toast.ok ? 'success' : 'error'} />
     </Box>
   );
 }

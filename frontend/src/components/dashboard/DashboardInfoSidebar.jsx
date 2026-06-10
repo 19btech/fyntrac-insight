@@ -1,29 +1,32 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { Drawer, Box, Typography, IconButton, Divider, TextField, Button, List, ListItem, ListItemText, Switch, FormControlLabel } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
+import React, { useEffect, useState } from 'react';
+import {
+  Dialog, DialogContent, DialogActions,
+  Box, Typography, Divider, TextField, Button, List, ListItem, ListItemText,
+} from '@mui/material';
 import HistoryIcon from '@mui/icons-material/History';
+import RestoreIcon from '@mui/icons-material/Restore';
+import BrandedDialogTitle from '../shared/BrandedDialogTitle';
+import restoreButtonSx from '../shared/restoreButtonSx';
 import api from '../../hooks/useQuery';
 
-/**
- * Metabase v60 dashboard info sidebar.
- * Shows description, metadata, version history and quick toggles.
- */
 export default function DashboardInfoSidebar({ open, onClose, dashboard, onChange, onRestore }) {
   const [versions, setVersions] = useState([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
 
-  // P3: local description state + debounce — avoids a PUT per keystroke.
+  const [localName, setLocalName] = useState(dashboard?.name || '');
   const [localDesc, setLocalDesc] = useState(dashboard?.description || '');
-  const descTimer = useRef(null);
-
-  // Sync local description when the sidebar is opened for a different dashboard.
-  useEffect(() => { setLocalDesc(dashboard?.description || ''); }, [dashboard?._id]);
+  useEffect(() => {
+    if (open) {
+      setLocalName(dashboard?.name || '');
+      setLocalDesc(dashboard?.description || '');
+    }
+  }, [open, dashboard?._id]);
 
   useEffect(() => {
     if (!open || !dashboard?._id) return;
     setLoadingVersions(true);
     api.get(`/dashboards/${dashboard._id}/versions`)
-      .then((r) => setVersions([...(r.data || [])].reverse())) // newest first
+      .then((r) => setVersions([...(r.data || [])].reverse()))
       .catch(() => setVersions([]))
       .finally(() => setLoadingVersions(false));
   }, [open, dashboard?._id]);
@@ -31,81 +34,69 @@ export default function DashboardInfoSidebar({ open, onClose, dashboard, onChang
   if (!dashboard) return null;
 
   return (
-    <Drawer anchor="right" open={open} onClose={onClose} PaperProps={{ sx: { width: 360, p: 2 } }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h3" sx={{ flex: 1 }}>Dashboard info</Typography>
-        <IconButton onClick={onClose} size="small"><CloseIcon /></IconButton>
-      </Box>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <BrandedDialogTitle label="Dashboard" title="Dashboard Info" onClose={onClose} />
 
-      <TextField
-        label="Description"
-        fullWidth
-        multiline
-        minRows={3}
-        value={localDesc}
-        onChange={(e) => {
-          setLocalDesc(e.target.value);
-          if (descTimer.current) clearTimeout(descTimer.current);
-          descTimer.current = setTimeout(() => {
-            onChange?.({ ...dashboard, description: e.target.value });
-          }, 600);
-        }}
-        sx={{ mb: 2 }}
-      />
+      <DialogContent>
+        <TextField
+          label="Dashboard name"
+          fullWidth
+          value={localName}
+          onChange={(e) => setLocalName(e.target.value)}
+          placeholder="Untitled Dashboard"
+          sx={{ mb: 2.5 }}
+        />
+        <TextField
+          label="Description"
+          fullWidth
+          multiline
+          minRows={3}
+          value={localDesc}
+          onChange={(e) => setLocalDesc(e.target.value)}
+          sx={{ mb: 2.5 }}
+        />
 
-      <FormControlLabel
-        control={
-          <Switch
-            checked={dashboard.autoApplyFilters !== false}
-            onChange={(e) => onChange?.({ ...dashboard, autoApplyFilters: e.target.checked })}
-          />
-        }
-        label="Auto-apply filters"
-        sx={{ mb: 2, display: 'block' }}
-      />
+        <Divider sx={{ mb: 2.5 }} />
 
-      <Divider sx={{ mb: 2 }} />
-
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="body2" color="text.secondary">Last updated</Typography>
-        <Typography variant="body1">{dashboard.updatedAt ? new Date(dashboard.updatedAt).toLocaleString() : '—'}</Typography>
-      </Box>
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="body2" color="text.secondary">Created by</Typography>
-        <Typography variant="body1">{dashboard.createdBy || '—'}</Typography>
-      </Box>
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="body2" color="text.secondary">Cards</Typography>
-        <Typography variant="body1">{dashboard.cards?.length || 0}</Typography>
-      </Box>
-
-      <Divider sx={{ mb: 2 }} />
-
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-        <HistoryIcon fontSize="small" sx={{ mr: 1 }} />
-        <Typography variant="h4">Version history</Typography>
-      </Box>
-      {loadingVersions ? (
-        <Typography variant="body2" color="text.secondary">Loading…</Typography>
-      ) : versions.length === 0 ? (
-        <Typography variant="body2" color="text.secondary">No previous versions yet.</Typography>
-      ) : (
-        <List dense>
-          {versions.map((v, i) => (
-            <ListItem
-              key={i}
-              secondaryAction={
-                <Button size="small" onClick={() => onRestore?.(versions.length - 1 - i)}>Restore</Button>
-              }
-            >
-              <ListItemText
-                primary={v.snapshottedAt ? new Date(v.snapshottedAt).toLocaleString() : `v${i + 1}`}
-                secondary={v.name}
-              />
-            </ListItem>
-          ))}
-        </List>
-      )}
-    </Drawer>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+          <HistoryIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
+          <Typography variant="h6" sx={{ fontSize: '0.9rem', fontWeight: 700 }}>Version history</Typography>
+        </Box>
+        {loadingVersions ? (
+          <Typography variant="body2" color="text.secondary">Loading…</Typography>
+        ) : versions.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">No previous versions yet.</Typography>
+        ) : (
+          <List dense disablePadding sx={{ maxHeight: 220, overflowY: 'auto' }}>
+            {versions.map((v, i) => (
+              <ListItem
+                key={i}
+                sx={{ px: 0 }}
+                secondaryAction={
+                  <Button size="small" startIcon={<RestoreIcon fontSize="small" />} onClick={() => onRestore?.(versions.length - 1 - i)} sx={restoreButtonSx}>Restore</Button>
+                }
+              >
+                <ListItemText
+                  primary={v.snapshottedAt ? new Date(v.snapshottedAt).toLocaleString() : `v${i + 1}`}
+                  secondary={v.name}
+                />
+              </ListItem>
+            ))}
+          </List>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2.5, pt: 1 }}>
+        <Button
+          variant="contained"
+          onClick={() => {
+            onChange?.({ ...dashboard, name: localName, description: localDesc });
+            onClose?.();
+          }}
+          sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700, boxShadow: 'none', bgcolor: '#14213D', '&:hover': { bgcolor: '#0e172b', boxShadow: 'none' } }}
+        >
+          Save
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }

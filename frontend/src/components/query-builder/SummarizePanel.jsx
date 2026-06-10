@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Box, Typography, Select, MenuItem, FormControl, InputLabel, Button, IconButton, Stack, TextField,
+  Box, Typography, Button, IconButton, Stack, TextField, MenuItem,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -85,16 +85,16 @@ export default function SummarizePanel({
           : `${m.agg.replace('$', '')}_${(m.field || 'val').replace(/\./g, '_')}`;
         return (
           <Box key={m.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5, flexWrap: 'wrap' }}>
-            <FormControl size="small" sx={{ minWidth: 120 }}>
-              <InputLabel>Aggregation</InputLabel>
-              <Select
-                label="Aggregation"
-                value={m.agg}
-                onChange={(e) => updateMetric(i, { agg: e.target.value })}
-              >
-                {AGGREGATIONS.map((a) => <MenuItem key={a.value} value={a.value}>{a.label}</MenuItem>)}
-              </Select>
-            </FormControl>
+            <TextField
+              select size="small" label="Aggregation"
+              value={m.agg || '$count'}
+              onChange={(e) => updateMetric(i, { agg: e.target.value })}
+              sx={{ width: 140, '& .MuiOutlinedInput-root': { borderRadius: '16px' } }}
+            >
+              {AGGREGATIONS.map((a) => (
+                <MenuItem key={a.value} value={a.value}>{a.label}</MenuItem>
+              ))}
+            </TextField>
             {m.agg !== '$count' && (
               <FieldPicker collection={collection} value={m.field} onChange={(v) => updateMetric(i, { field: v })} label="Field" extraFields={extraFields} />
             )}

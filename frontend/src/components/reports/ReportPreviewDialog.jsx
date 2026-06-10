@@ -4,7 +4,7 @@ import {
   IconButton, Typography, Stack, Chip,
   Tabs, Tab, Box, Button, Divider, Skeleton,
   TextField, List, ListItem, ListItemText, CircularProgress, Tooltip,
-  Snackbar, Alert,
+  Snackbar, Alert, Paper,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import HighlightOffOutlinedIcon from '@mui/icons-material/HighlightOffOutlined';
@@ -12,7 +12,6 @@ import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import SaveIcon from '@mui/icons-material/Save';
 import EditIcon from '@mui/icons-material/Edit';
 import StorageIcon from '@mui/icons-material/Storage';
 import VerifiedIcon from '@mui/icons-material/Verified';
@@ -20,20 +19,25 @@ import HistoryIcon from '@mui/icons-material/History';
 import RestoreIcon from '@mui/icons-material/Restore';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import TuneIcon from '@mui/icons-material/Tune';
 import api from '../../hooks/useQuery';
-import { streamSSE } from '../../hooks/useAI';
-import ChartRenderer from '../charts/ChartRenderer';
+import ChartRenderer, { inferAxes } from '../charts/ChartRenderer';
+import ChartTypeSwitcher from '../charts/ChartTypeSwitcher';
+import VizSettingsRail from '../charts/VizSettingsRail';
+import { recommend } from '../charts/ChartRecommender';
+import { typeFields } from '../charts/_chartConfig';
 import QueryBuilderPanel from '../query-builder/QueryBuilderPanel';
 import useReportContextStore from '../../store/reportContextStore';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import restoreButtonSx from '../shared/restoreButtonSx';
+import AppToast from '../shared/AppToast';
+import BrandedDialogTitle from '../shared/BrandedDialogTitle';
 
 /**
  * Full-bleed modal for viewing AND editing a saved report. The modal is the
  * sole UI for working with an existing report — there is no separate page.
  *
  * Layout:
- *   - Sticky AppBar with title + chips and Tabs (Preview · Query · Details · History).
+ *   - Sticky AppBar with title + chips and Tabs (Preview · Query · History).
  *   - Two-column body:
  *       Left rail: editable name, description, layout selector, "Explain this
  *                  result" Ask-AI launcher, Re-run, Save, last-updated.
@@ -46,7 +50,6 @@ import remarkGfm from 'remark-gfm';
 const TABS = [
   { key: 'preview', label: 'Preview' },
   { key: 'query', label: 'Query' },
-  { key: 'details', label: 'Details' },
   { key: 'history', label: 'History' },
 ];
 
@@ -61,6 +64,18 @@ export default function ReportPreviewDialog({ open, reportId, isNew = false, onC
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [chartConfig, setChartConfig] = useState({ chartType: 'table' });
+  const [vizRailOpen, setVizRailOpen] = useState(true);
+
+  // Auto-inferred X/Y (so the viz rail prefills) + recommended chart types,
+  // based on the current chart type's own field assignments.
+  const vizInferred = useMemo(() => {
+    const tf = typeFields(chartConfig, chartConfig.chartType);
+    return inferAxes(results?.data || [], tf.xField, tf.yFields);
+  }, [results, chartConfig]);
+  const vizRecommended = useMemo(
+    () => recommend({ data: results?.data || [], x: vizInferred.x, y: vizInferred.y, allKeys: results?.columns || [] }),
+    [results, vizInferred.x, vizInferred.y]
+  );
   const [collection, setCollection] = useState('');
   const [pipelineJson, setPipelineJson] = useState('[]');
   const [builderState, setBuilderState] = useState(null);
@@ -76,12 +91,12 @@ export default function ReportPreviewDialog({ open, reportId, isNew = false, onC
   // Name+description are locked (greyed) by default for an existing report;
   // a brand-new report starts unlocked. After save we re-lock.
   const [metaEditing, setMetaEditing] = useState(false);
+  const [nameError, setNameError] = useState(false);
 
   const [versions, setVersions] = useState([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
-  const [narration, setNarration] = useState({ open: false, text: '', loading: false });
 
   const setReportCtx = useReportContextStore((s) => s.setReport);
   const clearReportCtx = useReportContextStore((s) => s.clearReport);
@@ -118,7 +133,7 @@ export default function ReportPreviewDialog({ open, reportId, isNew = false, onC
   // Hydrate when opened with a new id, or initialize a blank "new" report.
   useEffect(() => {
     if (!open) return;
-    setTab('preview'); setError(''); setDirty(false);
+    setTab('preview'); setError(''); setDirty(false); setNameError(false);
 
     if (isNew || !reportId) {
       // Blank new-report state — fields editable by default, no save until
@@ -202,8 +217,7 @@ export default function ReportPreviewDialog({ open, reportId, isNew = false, onC
   };
 
   const save = async () => {
-    if (!name?.trim()) { setError('Report name is required'); setMetaEditing(true); return; }
-    if (!description?.trim()) { setError('Report description is required'); setMetaEditing(true); return; }
+    if (!name?.trim()) { setNameError(true); setMetaEditing(true); return; }
     setSaving(true); setError('');
     try {
       let parsedPipeline = [];
@@ -230,7 +244,6 @@ export default function ReportPreviewDialog({ open, reportId, isNew = false, onC
       setReport(data);
       baselineRef.current = snapshot({ name, description, chartConfig, collection, pipelineJson, builderState });
       setDirty(false);
-      setMetaEditing(false);
       setSavedMsg('Report saved successfully');
       setTimeout(() => setSavedMsg(''), 2500);
       onSaved?.(data);
@@ -256,46 +269,13 @@ export default function ReportPreviewDialog({ open, reportId, isNew = false, onC
     const rowCount = results?.data?.length ?? 0;
     window.dispatchEvent(new CustomEvent('fyntrac:ai:open', {
       detail: {
-        prompt: `I have the report "${name || report?.name || 'Untitled'}" open in front of me.${collection ? ` It reads from "${collection}".` : ''} The results show ${rowCount} row(s) with columns: ${colList}.
+        prompt: `Analyse the data shown in the results grid of the report "${name || report?.name || 'Untitled'}".${collection ? ` Source: "${collection}".` : ''} The grid has ${rowCount} row(s) with columns: ${colList}.
 
-I can help you with:
-1. How each tab in this report modal works (Build, Results, History)
-2. Questions like "how do I filter the data?" or "how do I sort by posting date?"
-3. Data analysis — ask me "what is the total?", "which period is the highest?", "what is the average interest accrual?", or anything about the numbers in front of you
-
-What would you like to know?`,
+Give me the key insights from these numbers — totals, averages, the highest and lowest values, trends over any period column, and anything notable — citing specific figures in **bold**. Base it on the rows in front of me, keep it concise, and end with a couple of useful follow-up questions.`,
       },
     }));
   };
 
-  const narrate = async () => {
-    if (!results?.data) return;
-    const preview = JSON.stringify((results.data || []).slice(0, 50));
-    const cols = (results.columns || []).join(', ');
-    const prompt = `Write a 3-5 sentence business narrative summary for this report.
-
-Report: "${name || 'Untitled'}"
-${description ? `Description: ${description}` : ''}
-Chart type: ${chartConfig?.chartType || 'table'}
-Columns: ${cols}
-Row count: ${results.data.length}${results.truncated ? ' (truncated)' : ''}
-Data (first 50 rows): ${preview}
-
-Write for a non-technical finance audience. Cite specific numbers (totals, top items, notable trends). Use plain English prose, no bullet lists. Do not mention MongoDB or pipelines.`;
-
-    setNarration({ open: true, text: '', loading: true });
-    try {
-      let acc = '';
-      await streamSSE('/ai/chat', { messages: [{ role: 'user', content: prompt }], dashboardContext: {} }, (chunk) => {
-        acc += chunk;
-        setNarration((prev) => ({ ...prev, text: acc }));
-      });
-    } catch (err) {
-      setNarration((prev) => ({ ...prev, text: `Error: ${err.message}` }));
-    } finally {
-      setNarration((prev) => ({ ...prev, loading: false }));
-    }
-  };
 
   const sourceChip = useMemo(() => {
     if (source?.datasetId) {
@@ -353,9 +333,9 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
               label="Report"
               size="small"
               sx={{
-                height: 18, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
-                textTransform: 'uppercase', bgcolor: alpha('#3f51b5', 0.1),
-                color: '#3f51b5', mb: 0.5, borderRadius: 1,
+                height: 20, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
+                textTransform: 'uppercase', bgcolor: 'rgba(99, 102, 241, 0.1)',
+                color: '#6366F1', mb: 0.5, borderRadius: '8px',
               }}
             />
             <Stack direction="row" spacing={1} alignItems="center">
@@ -433,8 +413,11 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
             {metaEditing ? (
               <TextField
                 size="small" fullWidth autoFocus
-                value={name} onChange={(e) => setName(e.target.value)}
+                value={name}
+                onChange={(e) => { setName(e.target.value); if (nameError) setNameError(false); }}
                 placeholder="Report name"
+                error={nameError}
+                helperText={nameError ? 'Report name is required' : ''}
               />
             ) : (
               <Typography variant="body1" sx={{ fontWeight: 600, color: 'text.secondary' }}>
@@ -447,12 +430,29 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
             <Typography variant="body2" fontWeight={700} color="#0f172a">Description</Typography>
             {metaEditing ? (
               <TextField
-                size="small" fullWidth multiline minRows={2} maxRows={5}
+                size="small" fullWidth multiline minRows={2} maxRows={6}
                 value={description} onChange={(e) => setDescription(e.target.value)}
                 placeholder="What does this report show?"
+                inputProps={{ maxLength: 160 }}
+                helperText={`${(description || '').length}/160`}
+                FormHelperTextProps={{ sx: { textAlign: 'right', mx: 0 } }}
               />
             ) : (
-              <Typography variant="body2" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>
+              <Typography
+                variant="body2"
+                title={description || undefined}
+                sx={{
+                  color: 'text.secondary',
+                  width: '100%',
+                  whiteSpace: 'pre-wrap',
+                  overflowWrap: 'anywhere',
+                  wordBreak: 'break-word',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 6,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+              >
                 {description || <Box component="span" sx={{ fontStyle: 'italic', color: 'text.disabled' }}>No description</Box>}
               </Typography>
             )}
@@ -489,8 +489,8 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
             </Button>
             <Button
               size="small" variant="contained" fullWidth
-              startIcon={saving ? <CircularProgress size={13} color="inherit" /> : <SaveIcon fontSize="small" />}
-              onClick={save} disabled={saving || (!dirty && !!activeId) || !name?.trim() || !description?.trim()}
+              startIcon={saving ? <CircularProgress size={13} color="inherit" /> : null}
+              onClick={save} disabled={saving || (!dirty && !!activeId)}
               sx={{
                 borderRadius: 2, fontWeight: 700, textTransform: 'none',
                 bgcolor: '#14213d', boxShadow: 'none',
@@ -514,7 +514,7 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
         </Box>
 
         {/* Right pane */}
-        <Box sx={{ flex: 1, p: 4, overflow: 'auto', minWidth: 0, bgcolor: '#f8fafc' }}>
+        <Box sx={{ flex: 1, px: 4, pt: 2, pb: 4, overflow: 'auto', minWidth: 0, bgcolor: '#f8fafc' }}>
           {error && <Typography color="error" variant="body2" sx={{ mb: 2 }}>{error}</Typography>}
 
           {tab === 'preview' && (
@@ -522,49 +522,18 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
               ? (
                 <Stack spacing={1.25}>
                   {[...Array(8)].map((_, i) => (
-                    <Skeleton key={i} variant="rectangular" height={36} sx={{ borderRadius: 1, opacity: 1 - i * 0.1 }} />
+                    <Skeleton key={i} variant="rectangular" height={36} sx={{ borderRadius: '8px', opacity: 1 - i * 0.1 }} />
                   ))}
                 </Stack>
               )
-              : results && (
+              : !results ? (
+                <EmptyCard
+                  icon={<PlayArrowIcon sx={{ fontSize: 32, color: '#94A3B8' }} />}
+                  title="No preview yet"
+                  subtitle="Press Run Preview in the side panel to execute the query and see your results — as a table or chart — here."
+                />
+              ) : (
                 <>
-                  <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
-                    <Button
-                      size="small" variant="outlined"
-                      startIcon={narration.loading ? <CircularProgress size={13} sx={{ color: '#7c3aed' }} /> : <AutoAwesomeIcon fontSize="small" />}
-                      onClick={narrate}
-                      disabled={narration.loading}
-                      sx={{
-                        borderRadius: 2, fontWeight: 600, textTransform: 'none',
-                        color: '#7c3aed', borderColor: '#ddd6fe', bgcolor: '#faf5ff',
-                        '&:hover': { bgcolor: '#ede9fe', borderColor: '#c4b5fd' },
-                        '&.Mui-disabled': { bgcolor: '#faf5ff', borderColor: '#ddd6fe', color: '#7c3aed' },
-                      }}
-                    >
-                      {narration.loading ? 'Writing…' : 'Narrate results'}
-                    </Button>
-                  </Stack>
-                  {narration.open && (
-                    <Box sx={{ mb: 2, p: 2, bgcolor: '#faf5ff', border: '1px solid #ddd6fe', borderRadius: 2.5 }}>
-                      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 1 }}>
-                        <AutoAwesomeIcon sx={{ fontSize: 16, color: '#7c3aed' }} />
-                        <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#4c1d95' }}>AI Narrative</Typography>
-                        {narration.loading && <CircularProgress size={12} sx={{ color: '#7c3aed' }} />}
-                        <Box sx={{ flex: 1 }} />
-                        <IconButton size="small" onClick={() => setNarration({ open: false, text: '', loading: false })}>
-                          <CloseIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Stack>
-                      <Box sx={{ lineHeight: 1.7, color: '#1e293b', fontSize: '0.875rem',
-                        '& p': { margin: 0, lineHeight: 1.7 },
-                        '& strong': { fontWeight: 700 },
-                      }}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {narration.text || (narration.loading ? 'Writing narrative\u2026' : '')}
-                        </ReactMarkdown>
-                      </Box>
-                    </Box>
-                  )}
                   {results.truncated && (
                     <Box sx={{ px: 1.5, py: 0.75, mb: 1.5, bgcolor: '#fffbeb', border: 1, borderColor: '#fde68a', borderRadius: 1 }}>
                       <Typography variant="caption" sx={{ color: '#92400e' }}>
@@ -572,13 +541,50 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
                       </Typography>
                     </Box>
                   )}
-                  <ChartRenderer
-                    data={results.data}
-                    columns={results.columns}
-                    config={chartConfig}
-                    onConfigChange={setChartConfig}
-                    exportFilename={`${(name || 'report').replace(/[^\w\-]+/g, '_').toLowerCase()}.csv`}
-                  />
+                  {/* Visualization switcher + chart + settings rail */}
+                  <Box sx={{ mb: 1.5 }}>
+                    <ChartTypeSwitcher
+                      current={chartConfig.chartType || 'table'}
+                      recommended={vizRecommended}
+                      onPick={(type) => setChartConfig({ ...chartConfig, chartType: type })}
+                    />
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'stretch' }}>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <ChartRenderer
+                        data={results.data}
+                        columns={results.columns}
+                        config={chartConfig}
+                        onConfigChange={setChartConfig}
+                        controls="external"
+                        exportFilename={`${(name || 'report').replace(/[^\w\-]+/g, '_').toLowerCase()}.csv`}
+                      />
+                    </Box>
+                    {vizRailOpen ? (
+                      <Box sx={{ width: 300, flexShrink: 0, border: '1px solid #e2e8f0', borderRadius: 2, overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: 560 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', px: 1.5, py: 0.75, borderBottom: '1px solid #e2e8f0', bgcolor: '#f8fafc' }}>
+                          <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155', flex: 1 }}>Visualization</Typography>
+                          <Tooltip title="Hide settings"><IconButton size="small" onClick={() => setVizRailOpen(false)}><ChevronRightIcon fontSize="small" /></IconButton></Tooltip>
+                        </Box>
+                        <Box sx={{ flex: 1, minHeight: 0 }}>
+                          <VizSettingsRail
+                            config={chartConfig}
+                            onChange={setChartConfig}
+                            data={results.data}
+                            columns={results.columns}
+                            chartType={chartConfig.chartType || 'table'}
+                            inferred={vizInferred}
+                          />
+                        </Box>
+                      </Box>
+                    ) : (
+                      <Tooltip title="Visualization settings" placement="left">
+                        <IconButton onClick={() => setVizRailOpen(true)} sx={{ alignSelf: 'flex-start', border: '1px solid #e2e8f0', borderRadius: 2, color: '#4f46e5' }}>
+                          <TuneIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Box>
                 </>
               )
           )}
@@ -601,17 +607,6 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
             </Stack>
           )}
 
-          {tab === 'details' && report && (
-            <Stack spacing={2.25} sx={{ maxWidth: 720 }}>
-              <Detail label="Name" value={name} />
-              <Detail label="Description" value={description || '—'} />
-              <Detail label="Collection" value={collection || '—'} />
-              <Detail label="Type" value={report.type || 'builder'} />
-              <Detail label="Created" value={report.createdAt ? new Date(report.createdAt).toLocaleString() : '—'} />
-              <Detail label="Updated" value={report.updatedAt ? new Date(report.updatedAt).toLocaleString() : '—'} />
-            </Stack>
-          )}
-
           {tab === 'history' && (
             <Stack spacing={2}>
               <Stack direction="row" alignItems="center" spacing={1}>
@@ -620,7 +615,11 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
               </Stack>
               {versionsLoading && <CircularProgress size={20} />}
               {!versionsLoading && versions.length === 0 && (
-                <Typography variant="body2" color="text.secondary">No previous versions.</Typography>
+                <EmptyCard
+                  icon={<HistoryIcon sx={{ fontSize: 32, color: '#94A3B8' }} />}
+                  title="No history yet"
+                  subtitle="Save changes to this report to start capturing version snapshots. You'll be able to restore any earlier version from here."
+                />
               )}
               {!versionsLoading && versions.length > 0 && (
                 <List dense disablePadding>
@@ -653,12 +652,7 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
                                 setError(e.response?.data?.error || e.message);
                               }
                             }}
-                            sx={{
-                              borderRadius: 2, fontWeight: 600, textTransform: 'none',
-                              color: '#1e40af', borderColor: '#bfdbfe', bgcolor: '#eff6ff',
-                              border: '1px solid #bfdbfe',
-                              '&:hover': { bgcolor: '#dbeafe', borderColor: '#93c5fd' },
-                            }}
+                            sx={restoreButtonSx}
                           >
                             Restore
                           </Button>
@@ -687,101 +681,63 @@ Write for a non-technical finance audience. Cite specific numbers (totals, top i
         maxWidth="xs"
         fullWidth
       >
-        <DialogTitle sx={{ fontWeight: 700 }}>Discard unsaved changes?</DialogTitle>
+        <BrandedDialogTitle label="Report" title="Discard Changes" onClose={() => setConfirmCloseOpen(false)} />
         <DialogContent>
           <DialogContentText>
             You have unsaved changes to this report. If you close now, those changes will be lost.
           </DialogContentText>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setConfirmCloseOpen(false)}>Keep editing</Button>
           <Button onClick={confirmDiscard} color="error" variant="contained">Discard changes</Button>
         </DialogActions>
       </Dialog>
 
-      <Snackbar
-        open={!!savedMsg}
-        autoHideDuration={2500}
-        onClose={() => setSavedMsg('')}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        sx={{ mt: 8, zIndex: (theme) => theme.zIndex.modal + 20 }}
-      >
-        <Alert
-          severity="success"
-          variant="filled"
-          icon={false}
-          onClose={() => setSavedMsg('')}
-          sx={{
-            bgcolor: '#dcfce7',
-            color: '#166534',
-            fontWeight: 600,
-            border: '1px solid #bbf7d0',
-            boxShadow: '0 6px 16px rgba(22,163,74,0.15)',
-            '& .MuiAlert-action': { color: '#166534' },
-          }}
-        >
-          {savedMsg}
-        </Alert>
-      </Snackbar>
-
-      <Snackbar
-        open={!!queryDoneMsg}
-        autoHideDuration={3000}
-        onClose={() => setQueryDoneMsg('')}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        sx={{ mt: savedMsg ? 22 : 8, zIndex: (theme) => theme.zIndex.modal + 20 }}
-      >
-        <Alert
-          severity="success"
-          variant="filled"
-          icon={false}
-          onClose={() => setQueryDoneMsg('')}
-          sx={{
-            bgcolor: '#dcfce7',
-            color: '#166534',
-            fontWeight: 600,
-            border: '1px solid #bbf7d0',
-            boxShadow: '0 6px 16px rgba(22,163,74,0.15)',
-            '& .MuiAlert-action': { color: '#166534' },
-          }}
-        >
-          {queryDoneMsg}
-        </Alert>
-      </Snackbar>
-
-      <Snackbar
-        open={!!restoredMsg}
-        autoHideDuration={3000}
-        onClose={() => setRestoredMsg('')}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        sx={{ mt: 8, zIndex: (theme) => theme.zIndex.modal + 20 }}
-      >
-        <Alert
-          severity="success"
-          variant="filled"
-          icon={false}
-          onClose={() => setRestoredMsg('')}
-          sx={{
-            bgcolor: '#dcfce7',
-            color: '#166534',
-            fontWeight: 600,
-            border: '1px solid #bbf7d0',
-            boxShadow: '0 6px 16px rgba(22,163,74,0.15)',
-            '& .MuiAlert-action': { color: '#166534' },
-          }}
-        >
-          {restoredMsg}
-        </Alert>
-      </Snackbar>
+      <AppToast open={!!savedMsg} onClose={() => setSavedMsg('')} message={savedMsg} modal />
+      <AppToast open={!!queryDoneMsg} onClose={() => setQueryDoneMsg('')} message={queryDoneMsg} modal />
+      <AppToast open={!!restoredMsg} onClose={() => setRestoredMsg('')} message={restoredMsg} modal />
     </Dialog>
   );
 }
 
-function Detail({ label, value }) {
+// Shared animated empty-state card used across the Preview / History
+// tabs. Soft slate "tint" icon on a pastel circle, with a gentle fade-in-up on
+// mount and a slow float loop on the icon.
+function EmptyCard({ icon, title, subtitle }) {
   return (
-    <Stack direction="row" spacing={3}>
-      <Typography variant="body2" sx={{ width: 120, color: 'text.secondary' }}>{label}</Typography>
-      <Typography variant="body2" sx={{ flex: 1 }}>{value}</Typography>
-    </Stack>
+    <Paper
+      elevation={0}
+      sx={{
+        textAlign: 'center', py: 6, px: 4, borderRadius: 4,
+        border: '1px dashed #cbd5e1', bgcolor: '#fff',
+        animation: 'fyntrac-empty-in 0.45s ease both',
+        '@keyframes fyntrac-empty-in': {
+          '0%': { opacity: 0, transform: 'translateY(10px)' },
+          '100%': { opacity: 1, transform: 'translateY(0)' },
+        },
+      }}
+    >
+      <Stack alignItems="center" spacing={1.5}>
+        <Box
+          sx={{
+            width: 64, height: 64, borderRadius: '50%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            bgcolor: '#f1f5f9',
+            animation: 'fyntrac-empty-float 2.6s ease-in-out infinite',
+            '@keyframes fyntrac-empty-float': {
+              '0%, 100%': { transform: 'translateY(0)' },
+              '50%': { transform: 'translateY(-6px)' },
+            },
+          }}
+        >
+          {icon}
+        </Box>
+        <Typography sx={{ fontFamily: 'Inter', fontSize: '1rem', fontWeight: 600, color: '#64748B' }}>
+          {title}
+        </Typography>
+        <Typography variant="body2" sx={{ fontFamily: 'Inter', fontSize: '0.875rem', color: '#94A3B8', maxWidth: 380 }}>
+          {subtitle}
+        </Typography>
+      </Stack>
+    </Paper>
   );
 }

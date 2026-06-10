@@ -13,6 +13,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import api from '../../hooks/useQuery';
+import SearchSelect from '../shared/SearchSelect';
 
 const PROVIDERS = [
   { key: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-…', help: 'Get a key at console.anthropic.com' },
@@ -183,9 +184,9 @@ export default function AISettingsDialog({ open, onClose, onSaved }) {
                 label="AI"
                 size="small"
                 sx={{
-                  height: 18, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
-                  textTransform: 'uppercase', bgcolor: alpha('#3f51b5', 0.1),
-                  color: '#3f51b5', mb: 0.5, borderRadius: 1,
+                  height: 20, fontSize: '0.6rem', fontWeight: 700, letterSpacing: 0.8,
+                  textTransform: 'uppercase', bgcolor: 'rgba(99, 102, 241, 0.1)',
+                  color: '#6366F1', mb: 0.5, borderRadius: '8px',
                 }}
               />
               <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2, color: 'text.primary' }}>
@@ -314,19 +315,15 @@ export default function AISettingsDialog({ open, onClose, onSaved }) {
               Model
               {loadingModels && <CircularProgress size={12} sx={{ ml: 1 }} />}
             </Typography>
-            <FormControl fullWidth size="small" disabled={!cfg.hasKey || loadingModels}>
-              <InputLabel>Select a model</InputLabel>
-              <Select value={model} label="Select a model" onChange={handleModelChange}>
-                {models.length === 0 && (
-                  <MenuItem value="" disabled>
-                    {cfg.hasKey ? 'No models available' : 'Add an API key first'}
-                  </MenuItem>
-                )}
-                {models.map((m) => (
-                  <MenuItem key={m.id} value={m.id}>{m.name || m.id}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <SearchSelect
+              value={model}
+              onChange={handleModelChange}
+              options={models.map((m) => ({ value: m.id, label: m.name || m.id }))}
+              label="Select a model"
+              fullWidth
+              disabled={!cfg.hasKey || loadingModels}
+              placeholder={cfg.hasKey ? 'No models available' : 'Add an API key first'}
+            />
             {cfg.hasKey && (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontSize: '0.75rem' }}>
                 Models are fetched live from your {PROVIDERS[tab].label} account.

@@ -8,7 +8,7 @@ import { alpha } from '@mui/material/styles';
 import MenuIcon from '@mui/icons-material/Menu';
 import SearchIcon from '@mui/icons-material/Search';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
 import FolderIcon from '@mui/icons-material/Folder';
@@ -81,7 +81,15 @@ function useProfile() {
         sessionStorage.setItem('insight_firstName', urlVal);
         return urlVal;
       }
-      return sessionStorage.getItem('insight_firstName') || '';
+      let stored = sessionStorage.getItem('insight_firstName');
+      if (!stored) {
+        const token = sessionStorage.getItem('insight_auth_token');
+        if (token) {
+          const claims = JSON.parse(atob(token.split('.')[1]));
+          stored = claims?.userId || claims?.sub || '';
+        }
+      }
+      return stored || '';
     } catch { return ''; }
   });
 
@@ -92,7 +100,15 @@ function useProfile() {
         sessionStorage.setItem('insight_tenant', urlVal);
         return urlVal;
       }
-      return sessionStorage.getItem('insight_tenant') || '';
+      let stored = sessionStorage.getItem('insight_tenant');
+      if (!stored) {
+        const token = sessionStorage.getItem('insight_auth_token');
+        if (token) {
+          const claims = JSON.parse(atob(token.split('.')[1]));
+          stored = claims?.tenantId || '';
+        }
+      }
+      return stored || '';
     } catch { return ''; }
   });
 
@@ -311,14 +327,6 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
         {/* RIGHT zone: user profile pill */}
         <Stack direction="row" alignItems="center" spacing={1}
           sx={{ flexShrink: 0, minWidth: 0, zIndex: 1 }}>
-
-          {onAIClick && (
-            <Tooltip title="AI Assistant">
-              <IconButton onClick={onAIClick} size="small" sx={{ color: 'primary.main' }}>
-                <AutoAwesomeIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
 
 
           <Menu

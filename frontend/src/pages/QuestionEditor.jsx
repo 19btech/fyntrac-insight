@@ -3,10 +3,10 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box, Button, TextField, Dialog, DialogTitle,
   DialogContent, DialogActions, DialogContentText, Typography, CircularProgress, Chip, Stack,
-  Switch, FormControlLabel, FormControl, InputLabel, Select, MenuItem, Divider, Collapse,
+  Switch, FormControlLabel, Divider, Collapse,
   IconButton, Tooltip, List, ListItem, ListItemText, Skeleton,
 } from '@mui/material';
-import SaveIcon from '@mui/icons-material/Save';
+import SaveIcon from '@mui/icons-material/TurnedIn';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import VerifiedIcon from '@mui/icons-material/Verified';
@@ -14,6 +14,7 @@ import StorageIcon from '@mui/icons-material/Storage';
 import CodeIcon from '@mui/icons-material/Code';
 import HistoryIcon from '@mui/icons-material/History';
 import RestoreIcon from '@mui/icons-material/Restore';
+import restoreButtonSx from '../components/shared/restoreButtonSx';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import PipelineEditor from '../components/native-editor/PipelineEditor';
 import QueryBuilderPanel from '../components/query-builder/QueryBuilderPanel';
@@ -22,6 +23,7 @@ import StarterChooser, { intentDefaults } from '../components/question-starter/S
 import AIExplainPanel from '../components/ai/AIExplainPanel';
 import ReplaceWithCuratedStrip from '../components/question-helpers/ReplaceWithCuratedStrip';
 import api from '../hooks/useQuery';
+import SearchSelect from '../components/shared/SearchSelect';
 import usePageTitleStore from '../store/pageTitleStore';
 import useReportContextStore from '../store/reportContextStore';
 
@@ -359,14 +361,13 @@ export default function QuestionEditor() {
         sx={{ mb: 2, py: 1, borderBottom: 1, borderColor: 'divider', flexWrap: 'wrap' }}
       >
         <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>Layout</Typography>
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <Select
-            value={chartConfig.chartType || 'table'}
-            onChange={(e) => setChartConfig({ ...chartConfig, chartType: e.target.value })}
-          >
-            {CHART_TYPES.map((ct) => <MenuItem key={ct.key} value={ct.key}>{ct.label}</MenuItem>)}
-          </Select>
-        </FormControl>
+        <SearchSelect
+          value={chartConfig.chartType || 'table'}
+          onChange={(val) => setChartConfig({ ...chartConfig, chartType: val })}
+          options={CHART_TYPES.map((ct) => ({ value: ct.key, label: ct.label }))}
+          label="Layout"
+          width={160}
+        />
 
         <Divider orientation="vertical" flexItem />
 
@@ -531,7 +532,7 @@ export default function QuestionEditor() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setRestoreConfirmIdx(null)}>Cancel</Button>
-          <Button onClick={confirmRestoreVersion} variant="contained" color="primary">Restore</Button>
+          <Button size="small" onClick={confirmRestoreVersion} startIcon={<RestoreIcon fontSize="small" />} sx={restoreButtonSx}>Restore</Button>
         </DialogActions>
       </Dialog>
 

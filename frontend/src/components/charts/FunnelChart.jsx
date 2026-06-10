@@ -1,6 +1,15 @@
 import React, { useMemo } from 'react';
 import { Box, Stack, Typography, Tooltip } from '@mui/material';
 import { CHART_COLORS, CHART_HEIGHT } from './_chartColors';
+import { formatByColumn } from './_columnRules';
+
+// Format respecting domain rules (period IDs have no thousands separators),
+// falling back to a thousands-separated number for ordinary measures.
+function fmt(field, v) {
+  const ruled = formatByColumn(field, v);
+  if (ruled !== undefined && ruled !== '') return ruled;
+  return typeof v === 'number' ? v.toLocaleString() : String(v ?? '');
+}
 
 /**
  * Lightweight funnel renderer. MUI X Charts (community) does not ship a
@@ -61,13 +70,13 @@ export default function FunnelChart({ data = [], xField, yFields = [], height })
         </svg>
         <Stack spacing={0.5} sx={{ minWidth: 140 }}>
           {rows.map((r, i) => (
-            <Tooltip key={i} title={`${r.name}: ${r.value.toLocaleString()}`} arrow placement="left">
+            <Tooltip key={i} title={`${fmt(xField, r.name)}: ${fmt(valueField, r.value)}`} arrow placement="left">
               <Stack direction="row" alignItems="center" spacing={1}>
                 <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: CHART_COLORS[i % CHART_COLORS.length] }} />
                 <Typography variant="caption" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>
-                  {String(r.name)}
+                  {fmt(xField, r.name)}
                 </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>{r.value.toLocaleString()}</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>{fmt(valueField, r.value)}</Typography>
               </Stack>
             </Tooltip>
           ))}

@@ -23,17 +23,28 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { name, description, sourceCollection, steps, columnOrder, verified, pinned } = req.body;
+    const { name, description, sourceCollection, steps, columnOrder, verified, pinned, sourceMode, savedQueryId, savedQuerySql, savedQueryName } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required' });
     if (!sourceCollection) return res.status(400).json({ error: 'sourceCollection is required' });
-    let pipeline;
-    try { pipeline = compileIfNeeded(req.body); }
-    catch (e) { return res.status(400).json({ error: e.message }); }
+    const mode = sourceMode === 'savedQuery' ? 'savedQuery' : 'steps';
+    if (mode === 'savedQuery' && !savedQuerySql) {
+      return res.status(400).json({ error: 'A saved query is required in savedQuery mode' });
+    }
+    let pipeline = [];
+    // Only compile the step pipeline in steps mode; savedQuery datasets carry no pipeline.
+    if (mode === 'steps') {
+      try { pipeline = compileIfNeeded(req.body); }
+      catch (e) { return res.status(400).json({ error: e.message }); }
+    }
     const model = await req.model('SavedModel').create({
       name, description, sourceCollection, pipeline,
       steps: steps || [],
       columnOrder: Array.isArray(columnOrder) ? columnOrder : [],
       verified: !!verified, pinned: !!pinned,
+      sourceMode: mode,
+      savedQueryId: mode === 'savedQuery' ? (savedQueryId || null) : null,
+      savedQuerySql: mode === 'savedQuery' ? (savedQuerySql || '') : '',
+      savedQueryName: mode === 'savedQuery' ? (savedQueryName || '') : '',
       tenantId: req.user.tenantId,
       createdBy: req.user.userId,
     });
@@ -105,7 +116,7 @@ router.put('/:id', async (req, res) => {
   try {
     const model = await req.model('SavedModel').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
     if (!model) return res.status(404).json({ error: 'Model not found' });
-    const { name, description, sourceCollection, steps, columnOrder, verified, pinned } = req.body;
+    const { name, description, sourceCollection, steps, columnOrder, verified, pinned, sourceMode, savedQueryId, savedQuerySql, savedQueryName } = req.body;
 
     // Snapshot the prior state into versions before mutating.
     const prior = {
@@ -116,6 +127,10 @@ router.put('/:id', async (req, res) => {
       pipeline: model.pipeline,
       columnOrder: model.columnOrder,
       verified: model.verified,
+      sourceMode: model.sourceMode,
+      savedQueryId: model.savedQueryId,
+      savedQuerySql: model.savedQuerySql,
+      savedQueryName: model.savedQueryName,
     };
     const versions = Array.isArray(model.versions) ? model.versions : [];
     versions.push({
@@ -133,12 +148,26 @@ router.put('/:id', async (req, res) => {
     if (verified !== undefined) model.verified = verified;
     if (pinned !== undefined) model.pinned = pinned;
     if (Array.isArray(columnOrder)) model.columnOrder = columnOrder;
-    if (Array.isArray(steps)) {
-      model.steps = steps;
-      try { model.pipeline = compileSteps(steps); }
-      catch (e) { return res.status(400).json({ error: e.message }); }
-    } else if (Array.isArray(req.body.pipeline)) {
-      model.pipeline = req.body.pipeline;
+    if (sourceMode !== undefined) model.sourceMode = sourceMode === 'savedQuery' ? 'savedQuery' : 'steps';
+    if (model.sourceMode === 'savedQuery') {
+      // SavedQuery dataset: persist the query reference + SQL snapshot; the step
+      // pipeline is not used (kept for when the user switches back to steps).
+      if (savedQueryId !== undefined) model.savedQueryId = savedQueryId || null;
+      if (savedQuerySql !== undefined) model.savedQuerySql = savedQuerySql || '';
+      if (savedQueryName !== undefined) model.savedQueryName = savedQueryName || '';
+      if (Array.isArray(steps)) model.steps = steps; // retain, don't recompile
+    } else {
+      // Steps mode: recompile the pipeline from the step stack.
+      if (savedQueryId !== undefined) model.savedQueryId = savedQueryId || null;
+      if (savedQuerySql !== undefined) model.savedQuerySql = savedQuerySql || '';
+      if (savedQueryName !== undefined) model.savedQueryName = savedQueryName || '';
+      if (Array.isArray(steps)) {
+        model.steps = steps;
+        try { model.pipeline = compileSteps(steps); }
+        catch (e) { return res.status(400).json({ error: e.message }); }
+      } else if (Array.isArray(req.body.pipeline)) {
+        model.pipeline = req.body.pipeline;
+      }
     }
     await model.save();
     res.json(model);

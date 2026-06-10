@@ -8,14 +8,9 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import EditIcon from '@mui/icons-material/Edit';
 import SpeedIcon from '@mui/icons-material/Speed';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import TuneIcon from '@mui/icons-material/Tune';
-import DataObjectIcon from '@mui/icons-material/DataObject';
-import PaletteIcon from '@mui/icons-material/Palette';
-import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import CloseIcon from '@mui/icons-material/Close';
 import HighlightOffOutlinedIcon from '@mui/icons-material/HighlightOffOutlined';
@@ -23,10 +18,15 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CircularProgress from '@mui/material/CircularProgress';
 import { alpha } from '@mui/material/styles';
 import api from '../hooks/useQuery';
+import useDelayedFlag from '../hooks/useDelayedFlag';
 import KpiTile from '../components/shared/KpiTile';
 import formatKpi from '../components/shared/formatKpi';
 import FilterValueInput from '../components/query-builder/FilterValueInput';
 import useKpiContextStore from '../store/kpiContextStore';
+import AppToast from '../components/shared/AppToast';
+import ADD_BUTTON_SX from '../components/shared/addButtonSx';
+import BrandedDialogTitle from '../components/shared/BrandedDialogTitle';
+import SearchSelect from '../components/shared/SearchSelect';
 
 const KPI_TILE_FRAME_SX = {
   height: 220,
@@ -268,7 +268,10 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
     return d;
   });
   const [pipeline, setPipeline] = useState(JSON.stringify(initial.pipeline || [], null, 2));
-  const [usePipeline, setUsePipeline] = useState(!!(initial.pipeline?.length && !initial.definition));
+  // Existing KPIs saved as a raw pipeline still render in pipeline mode; the
+  // visual builder is the only mode offered for new/edited KPIs (the manual
+  // mode toggle was removed). Derived once from the initial record.
+  const [usePipeline] = useState(!!(initial.pipeline?.length && !initial.definition));
   const [format, setFormat] = useState(initial.format || {
     kind: initial.displayFormat || 'number',
     decimals: 0, compact: false, negatives: 'minus',
@@ -438,7 +441,7 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="lg"
+      maxWidth="xl"
       fullWidth
       PaperProps={{
         sx: {
@@ -488,12 +491,6 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
           )}
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Button
-            size="small" variant="contained" onClick={handleSave}
-            sx={{ fontWeight: 700, px: 2.5, borderRadius: 2 }}
-          >
-            Save KPI
-          </Button>
           <Tooltip title="Close" placement="left">
             <IconButton
               onClick={onClose} size="small"
@@ -514,12 +511,12 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
         px: 2,
       }}>
         {[
-          { label: 'Details', icon: <InfoOutlinedIcon sx={{ fontSize: 15 }} /> },
-          { label: 'Source', icon: <DataObjectIcon sx={{ fontSize: 15 }} /> },
-          { label: 'Definition', icon: <TuneIcon sx={{ fontSize: 15 }} /> },
-          { label: 'Format', icon: <PaletteIcon sx={{ fontSize: 15 }} /> },
-          { label: 'Targets', icon: <TrackChangesIcon sx={{ fontSize: 15 }} /> },
-        ].map(({ label, icon }, i) => (
+          { label: 'Details' },
+          { label: 'Source' },
+          { label: 'Definition' },
+          { label: 'Format' },
+          { label: 'Targets' },
+        ].map(({ label }, i) => (
           <Box
             key={label}
             onClick={() => setTab(i)}
@@ -541,7 +538,6 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
               },
             }}
           >
-            {icon}
             <Typography variant="body2" fontWeight="inherit" fontSize="inherit" color="inherit">
               {label}
             </Typography>
@@ -607,7 +603,7 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
                 title="Data source"
                 description="Choose where this KPI pulls its rows from — a raw collection, a saved dataset, or a report."
               >
-                <Stack direction="row" spacing={1.5}>
+                <Stack direction="row" spacing={1.5} sx={{ maxWidth: 680 }}>
                   {SOURCE_KINDS.map((k) => (
                     <ChoiceCard
                       key={k.value}
@@ -631,30 +627,31 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
                 </Stack>
 
                 {sourceKind === 'collection' && (
-                  <FormControl size="small" fullWidth>
-                    <InputLabel>Source collection</InputLabel>
-                    <Select value={collection} label="Source collection" onChange={(e) => setCollection(e.target.value)}>
-                      {collections.filter((c) => c.toLowerCase() !== 'eventhistory').map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-                    </Select>
-                  </FormControl>
+                  <SearchSelect
+                    value={collection}
+                    onChange={(val) => setCollection(val || '')}
+                    options={collections.filter((c) => c.toLowerCase() !== 'eventhistory').map((c) => ({ value: c, label: c }))}
+                    label="Source collection"
+                    width={680}
+                  />
                 )}
                 {sourceKind === 'dataset' && (
-                  <FormControl size="small" fullWidth>
-                    <InputLabel>Source dataset</InputLabel>
-                    <Select value={sourceId} label="Source dataset" onChange={(e) => setSourceId(e.target.value)}>
-                      {datasets.map((d) => <MenuItem key={d._id} value={d._id}>{d.name}</MenuItem>)}
-                      {!datasets.length && <MenuItem disabled value=""><em>No datasets available</em></MenuItem>}
-                    </Select>
-                  </FormControl>
+                  <SearchSelect
+                    value={sourceId}
+                    onChange={(val) => setSourceId(val || '')}
+                    options={datasets.map((d) => ({ value: d._id, label: d.name }))}
+                    label="Source dataset"
+                    width={680}
+                  />
                 )}
                 {sourceKind === 'question' && (
-                  <FormControl size="small" fullWidth>
-                    <InputLabel>Source report</InputLabel>
-                    <Select value={sourceId} label="Source report" onChange={(e) => setSourceId(e.target.value)}>
-                      {questions.map((q) => <MenuItem key={q._id} value={q._id}>{q.name}</MenuItem>)}
-                      {!questions.length && <MenuItem disabled value=""><em>No reports available</em></MenuItem>}
-                    </Select>
-                  </FormControl>
+                  <SearchSelect
+                    value={sourceId}
+                    onChange={(val) => setSourceId(val || '')}
+                    options={questions.map((q) => ({ value: q._id, label: q.name }))}
+                    label="Source report"
+                    width={680}
+                  />
                 )}
               </SectionCard>
             </Stack>
@@ -663,24 +660,6 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
           {/* ── Definition ──────────────────────────────────────────── */}
           {tab === 2 && (
             <Stack spacing={2}>
-              <SectionCard
-                title="Calculation mode"
-                description="Use the visual builder for most KPIs. Switch to raw pipeline mode for complete control."
-              >
-                <Box sx={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  px: 2, py: 1.5, borderRadius: 2, bgcolor: usePipeline ? '#fffbeb' : 'transparent',
-                  border: '1px solid', borderColor: usePipeline ? '#fde68a' : '#e2e8f0',
-                  transition: 'all .15s',
-                }}>
-                  <Box>
-                    <Typography variant="body2" fontWeight={700}>Raw MongoDB pipeline</Typography>
-                    <Typography variant="caption" color="text.secondary">Write your own aggregation for advanced use-cases</Typography>
-                  </Box>
-                  <Switch checked={usePipeline} onChange={(e) => setUsePipeline(e.target.checked)} size="small" />
-                </Box>
-              </SectionCard>
-
               {!usePipeline ? (
                 <>
                   <SectionCard title="Numerator" description="The main value this KPI computes.">
@@ -693,14 +672,17 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
                         </Select>
                       </FormControl>
                       {definition.numerator.agg !== '$count' && (
-                        <FormControl size="small" sx={{ flex: 1 }} disabled={!fields.length}>
-                          <InputLabel>Field</InputLabel>
-                          <Select label="Field" value={definition.numerator.field || ''}
-                            onChange={(e) => setDefinition({ ...definition, numerator: { ...definition.numerator, field: e.target.value } })}>
-                            {fields.filter((f) => f.type === 'number' && f.semanticType !== 'period').map((f) => <MenuItem key={f.name} value={f.name}>{f.name}{f.semanticType ? ` (${f.semanticType})` : ''}</MenuItem>)}
-                            {!fields.length && <MenuItem disabled value=""><em>Pick a source first</em></MenuItem>}
-                          </Select>
-                        </FormControl>
+                        <Box sx={{ flex: 1 }}>
+                          <SearchSelect
+                            value={definition.numerator.field || ''}
+                            onChange={(val) => setDefinition({ ...definition, numerator: { ...definition.numerator, field: val || '' } })}
+                            options={fields.filter((f) => f.type === 'number' && f.semanticType !== 'period').map((f) => ({ value: f.name, label: f.semanticType ? `${f.name} (${f.semanticType})` : f.name }))}
+                            label="Field"
+                            placeholder={fields.length ? 'Select…' : 'Pick a source first'}
+                            disabled={!fields.length}
+                            fullWidth
+                          />
+                        </Box>
                       )}
                     </Stack>
 
@@ -733,14 +715,17 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
                             </Select>
                           </FormControl>
                           {definition.denominator.agg !== '$count' && (
-                            <FormControl size="small" sx={{ flex: 1 }} disabled={!fields.length}>
-                              <InputLabel>Field</InputLabel>
-                              <Select label="Field" value={definition.denominator.field || ''}
-                                onChange={(e) => setDefinition({ ...definition, denominator: { ...definition.denominator, field: e.target.value } })}>
-                                {fields.filter((f) => f.type === 'number' && f.semanticType !== 'period').map((f) => <MenuItem key={f.name} value={f.name}>{f.name}{f.semanticType ? ` (${f.semanticType})` : ''}</MenuItem>)}
-                                {!fields.length && <MenuItem disabled value=""><em>Pick a source first</em></MenuItem>}
-                              </Select>
-                            </FormControl>
+                            <Box sx={{ flex: 1 }}>
+                              <SearchSelect
+                                value={definition.denominator.field || ''}
+                                onChange={(val) => setDefinition({ ...definition, denominator: { ...definition.denominator, field: val || '' } })}
+                                options={fields.filter((f) => f.type === 'number' && f.semanticType !== 'period').map((f) => ({ value: f.name, label: f.semanticType ? `${f.name} (${f.semanticType})` : f.name }))}
+                                label="Field"
+                                placeholder={fields.length ? 'Select…' : 'Pick a source first'}
+                                disabled={!fields.length}
+                                fullWidth
+                              />
+                            </Box>
                           )}
                         </Stack>
                       </Box>
@@ -751,7 +736,11 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
                     title="Filters"
                     description="Narrow rows before aggregation — all conditions are AND-ed."
                     action={
-                      <Button size="small" startIcon={<AddIcon />} onClick={addFilter}>Add filter</Button>
+                      <Tooltip title="Add filter">
+                        <IconButton onClick={addFilter} sx={{ ...ADD_BUTTON_SX, width: 32, height: 32 }}>
+                          <AddIcon sx={{ fontSize: 20 }} />
+                        </IconButton>
+                      </Tooltip>
                     }
                   >
                     {(definition.filters || []).length === 0 ? (
@@ -763,13 +752,17 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
                         {(definition.filters || []).map((f, i) => (
                           <Stack key={i} direction="row" spacing={1} alignItems="center"
                             sx={{ p: 1.25, bgcolor: '#f8fafc', borderRadius: 1.5, border: '1px solid #e2e8f0' }}>
-                            <FormControl size="small" sx={{ flex: 1.4 }} disabled={!fields.length}>
-                              <InputLabel>Field</InputLabel>
-                              <Select label="Field" value={f.field || ''} onChange={(e) => updateFilter(i, { field: e.target.value, value: '' })}>
-                                {fields.map((fd) => <MenuItem key={fd.name} value={fd.name}>{fd.name} ({fd.semanticType || fd.type})</MenuItem>)}
-                                {!fields.length && <MenuItem disabled value=""><em>Pick a source first</em></MenuItem>}
-                              </Select>
-                            </FormControl>
+                            <Box sx={{ flex: 1.4 }}>
+                              <SearchSelect
+                                value={f.field || ''}
+                                onChange={(val) => updateFilter(i, { field: val || '', value: '' })}
+                                options={fields.map((fd) => ({ value: fd.name, label: `${fd.name} (${fd.semanticType || fd.type})` }))}
+                                label="Field"
+                                placeholder={fields.length ? 'Select…' : 'Pick a source first'}
+                                disabled={!fields.length}
+                                fullWidth
+                              />
+                            </Box>
                             <FormControl size="small" sx={{ minWidth: 116 }}>
                               <InputLabel>Operator</InputLabel>
                               <Select label="Operator" value={f.operator || '$eq'} onChange={(e) => updateFilter(i, { operator: e.target.value })}>
@@ -778,7 +771,9 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
                             </FormControl>
                             {f.operator !== '$exists' && (
                               <FilterValueInput
-                                collection={sourceKind === 'collection' ? collection : undefined}
+                                sourceKind={sourceKind}
+                                sourceName={sourceKind === 'collection' ? collection : undefined}
+                                sourceId={sourceKind !== 'collection' ? sourceId : undefined}
                                 field={f.field}
                                 operator={f.operator || '$eq'}
                                 value={f.value ?? ''}
@@ -1115,31 +1110,47 @@ function MetricEditDialog({ open, onClose, onSave, initial = {} }) {
               <PreviewRow label="Bands" value={`${(targets.bands || []).length} band${(targets.bands || []).length !== 1 ? 's' : ''}`} />
             </Stack>
           </Box>
+          <Box sx={{ p: 2, borderTop: '1px solid #f1f5f9', flexShrink: 0 }}>
+            <Button
+              fullWidth
+              variant="contained"
+              onClick={handleSave}
+              sx={{
+                borderRadius: 2, fontWeight: 700, textTransform: 'none',
+                bgcolor: '#14213d', boxShadow: 'none',
+                '&:hover': { bgcolor: '#0a1628', boxShadow: 'none' },
+              }}
+            >
+              Save KPI
+            </Button>
+          </Box>
         </Box>
       </Box>
 
-      {/* ── Error footer ────────────────────────────────────────────── */}
-      {error && (
-        <Alert severity="error" variant="filled" icon={false} onClose={() => setError('')}
-          sx={{ borderRadius: 0, py: 1, px: 3, flexShrink: 0, fontWeight: 600, fontSize: '0.82rem' }}>
-          {error}
-        </Alert>
-      )}
+      <AppToast open={!!error} onClose={() => setError('')} message={error} severity="error" modal />
     </Dialog>
   );
 }
 
-function MetricCardItem({ metric, onEdit, onDelete }) {
-  const [evaluation, setEvaluation] = useState(null);
-  const [loading, setLoading] = useState(true);
+function MetricCardItem({ metric, evalResult, evalReady, onEdit, onDelete }) {
+  // The KPIs page evaluates all tiles in one batch request and feeds the result
+  // in via `evalResult`; fall back to an individual evaluate only if the batch
+  // result is missing.
+  const [evaluation, setEvaluation] = useState(evalResult || null);
+  const [loading, setLoading] = useState(!evalResult);
 
   useEffect(() => {
+    if (evalResult) { setEvaluation(evalResult); setLoading(false); return undefined; }
+    if (!evalReady) { setLoading(true); return undefined; } // batch still in flight
+    // Batch finished without this metric — evaluate it individually as a fallback.
+    let cancelled = false;
     setLoading(true);
     api.post(`/metrics/${metric._id}/evaluate`)
-      .then((r) => setEvaluation(r.data))
-      .catch(() => setEvaluation({ error: true }))
-      .finally(() => setLoading(false));
-  }, [metric._id]);
+      .then((r) => { if (!cancelled) setEvaluation(r.data); })
+      .catch(() => { if (!cancelled) setEvaluation({ error: true }); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [metric._id, evalResult, evalReady]);
 
   const value = evaluation?.value;
   const rawTrendValue = evaluation?.trendValue;
@@ -1173,15 +1184,11 @@ function MetricCardItem({ metric, onEdit, onDelete }) {
       sparklineSeries={Array.isArray(evaluation?.trendSeries) ? evaluation.trendSeries : null}
       loading={loading}
       error={!!evaluation?.error}
+      onClick={() => onEdit(metric)}
       actions={
         <>
-          <Tooltip title="Edit">
-            <IconButton size="small" onClick={() => onEdit(metric)} sx={{ color: 'text.disabled', '&:hover': { color: 'text.secondary', bgcolor: 'action.hover' } }}>
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
           <Tooltip title="Delete">
-            <IconButton size="small" onClick={() => onDelete(metric)} sx={{ color: 'text.disabled', '&:hover': { color: 'text.secondary', bgcolor: 'action.hover' } }}>
+            <IconButton size="small" onClick={(e) => { e.stopPropagation(); onDelete(metric); }} sx={{ color: 'text.disabled', '&:hover': { color: 'text.secondary', bgcolor: 'action.hover' } }}>
               <DeleteOutlineIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -1194,10 +1201,13 @@ function MetricCardItem({ metric, onEdit, onDelete }) {
 export default function MetricsPage() {
   const [metrics, setMetrics] = useState([]);
   const [loading, setLoading] = useState(true);
+  const showSkeleton = useDelayedFlag(loading);
   const [editing, setEditing] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [toast, setToast] = useState({ open: false, msg: '', ok: true });
+  const [evaluations, setEvaluations] = useState({}); // id -> eval payload
+  const [evalReady, setEvalReady] = useState(false);
 
   const showToast = (msg, ok = true) => {
     setToast({ open: true, msg, ok });
@@ -1232,9 +1242,29 @@ export default function MetricsPage() {
 
   const reload = () => {
     setLoading(true);
-    api.get('/metrics').then((r) => setMetrics(r.data)).finally(() => setLoading(false));
+    setEvalReady(false);
+    api.get('/metrics')
+      .then((r) => {
+        const list = r.data || [];
+        setMetrics(list);
+        // One batched evaluation instead of one request per tile.
+        const ids = list.map((m) => m._id);
+        if (ids.length === 0) { setEvaluations({}); setEvalReady(true); return; }
+        api.post('/metrics/evaluate-batch', { ids })
+          .then((res) => setEvaluations(res.data || {}))
+          .catch(() => setEvaluations({}))
+          .finally(() => setEvalReady(true));
+      })
+      .finally(() => setLoading(false));
   };
   useEffect(() => { reload(); }, []);
+
+  // Refresh when a KPI is created elsewhere (e.g. from the Ask Insight chat).
+  useEffect(() => {
+    const onCreated = () => reload();
+    window.addEventListener('fyntrac:metric:created', onCreated);
+    return () => window.removeEventListener('fyntrac:metric:created', onCreated);
+  }, []);
 
   // Open dialog from ?open=:id (or ?open=new)
   useEffect(() => {
@@ -1277,27 +1307,22 @@ export default function MetricsPage() {
 
   return (
     <Box>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between"
+        sx={{ pt: 1.5, pl: 1.5, pb: 2, mb: 4, borderBottom: '1.5px solid rgba(148, 163, 184, 0.2)' }}>
         <Box>
-          <Typography variant="h2">KPIs</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Reusable key performance indicators — define once, drop into any dashboard.
-          </Typography>
+          <Typography variant="h5" sx={{ fontWeight: 600, letterSpacing: '-0.5px', color: 'text.primary' }}>KPIs</Typography>
         </Box>
         <Tooltip title="New KPI">
           <IconButton
             onClick={() => setEditing({})}
-            sx={{
-              bgcolor: 'primary.main', color: '#fff', borderRadius: 2,
-              '&:hover': { bgcolor: 'primary.dark' },
-            }}
+            sx={ADD_BUTTON_SX}
           >
             <AddIcon />
           </IconButton>
         </Tooltip>
       </Stack>
 
-      {loading ? (
+      {showSkeleton ? (
         <Grid container spacing={2}>
           {[1, 2, 3].map((i) => (
             <Grid key={i} size={{ xs: 12, sm: 6, md: 3 }}>
@@ -1305,21 +1330,24 @@ export default function MetricsPage() {
             </Grid>
           ))}
         </Grid>
+      ) : loading ? (
+        <Box sx={{ minHeight: 200 }} />
       ) : metrics.length === 0 ? (
-        <Card variant="outlined" sx={{ p: 4, textAlign: 'center', mt: 4 }}>
-          <SpeedIcon sx={{ fontSize: 56, color: 'text.disabled' }} />
-          <Typography variant="h4" sx={{ mt: 1 }}>No KPIs yet</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Define a key performance indicator once — sum, average, ratio or custom pipeline — then reuse it on any dashboard.
-          </Typography>
-          <Button variant="contained" onClick={() => setEditing({})}>Create your first KPI</Button>
+        <Card elevation={0} sx={{ textAlign: 'center', py: 10, px: 4, borderRadius: 4, border: '1px solid #E5E7EB', bgcolor: '#FFFFFF' }}>
+          <Stack alignItems="center" spacing={1.5}>
+            <SpeedIcon sx={{ fontSize: 40, color: '#94A3B8' }} />
+            <Typography sx={{ fontFamily: 'Inter', fontSize: '1rem', fontWeight: 600, color: '#64748B', textAlign: 'center' }}>No KPIs to display</Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'Inter', fontSize: '0.875rem', fontWeight: 400, color: '#94A3B8', maxWidth: 340, textAlign: 'center' }}>
+              Use the + button above to create your first KPI.
+            </Typography>
+          </Stack>
         </Card>
       ) : (
         <Grid container spacing={2}>
           {metrics.map((m) => (
             <Grid size={{ xs: 12, sm: 6, md: 3 }} key={m._id}>
               <Box sx={KPI_TILE_FRAME_SX}>
-                <MetricCardItem metric={m} onEdit={setEditing} onDelete={handleDelete} />
+                <MetricCardItem metric={m} evalResult={evaluations[m._id]} evalReady={evalReady} onEdit={setEditing} onDelete={handleDelete} />
               </Box>
             </Grid>
           ))}
@@ -1331,34 +1359,16 @@ export default function MetricsPage() {
       )}
 
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>Delete KPI?</DialogTitle>
+        <BrandedDialogTitle label="KPI" title="Delete KPI" onClose={() => setDeleteTarget(null)} />
         <DialogContent>
           <Typography>Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This cannot be undone.</Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
           <Button onClick={confirmDelete} variant="contained" color="error">Delete</Button>
         </DialogActions>
       </Dialog>
 
-      <Snackbar
-        open={toast.open}
-        onClose={() => setToast((t) => ({ ...t, open: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        autoHideDuration={3000}
-      >
-        <Alert
-          severity={toast.ok ? 'success' : 'error'}
-          variant="filled"
-          icon={false}
-          onClose={() => setToast((t) => ({ ...t, open: false }))}
-          sx={toast.ok
-            ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', '& .MuiAlert-action': { color: '#166534' } }
-            : { bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 600, border: '1px solid #fecaca', '& .MuiAlert-action': { color: '#991b1b' } }}
-        >
-          {toast.msg}
-        </Alert>
-      </Snackbar>
+      <AppToast open={toast.open} onClose={() => setToast((t) => ({ ...t, open: false }))} message={toast.msg} severity={toast.ok ? 'success' : 'error'} />
     </Box>
   );
 }

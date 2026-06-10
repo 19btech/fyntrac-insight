@@ -31,7 +31,7 @@ export function buildMetabaseTheme() {
     mode: 'light',
     primary: { main: t.brand.indigo, dark: t.brand.indigoDark, light: t.brand.indigoLight, contrastText: '#ffffff' },
     secondary: { main: t.brand.black, contrastText: '#ffffff' },
-    background: { default: '#f8fafc', paper: '#ffffff' },
+    background: { default: '#E2E8F0', paper: '#ffffff' },
     text: { primary: '#14213d', secondary: '#64748b' },
     divider: '#e5e7eb',
     success: { main: t.brand.green },
@@ -49,8 +49,8 @@ export function buildMetabaseTheme() {
       h2: { fontSize: '1.375rem', fontWeight: 700, letterSpacing: '-0.015em', color: palette.text.primary },
       h3: { fontSize: '1.125rem', fontWeight: 600, letterSpacing: '-0.01em', color: palette.text.primary },
       h4: { fontSize: '1rem', fontWeight: 600, color: palette.text.primary },
-      h5: { fontSize: '0.9375rem', fontWeight: 600, color: palette.text.primary },
-      h6: { fontSize: '0.875rem', fontWeight: 600, color: palette.text.primary },
+      h5: { fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif', fontSize: '1.5rem', fontWeight: 600, letterSpacing: '-0.5px', color: '#1E293B' },
+      h6: { fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif', fontSize: '1.125rem', fontWeight: 700, lineHeight: 1.2, color: '#1E293B' },
       body1: { fontSize: '0.875rem', color: palette.text.primary },
       body2: { fontSize: '0.8125rem', color: palette.text.secondary },
       button: { textTransform: 'none', fontWeight: 600 },
@@ -71,11 +71,15 @@ export function buildMetabaseTheme() {
             '50%': { opacity: 0.55 },
           },
           body: {
+            backgroundColor: '#E2E8F0',
             fontFeatureSettings: '"cv02", "cv03", "cv04", "cv11"',
             WebkitFontSmoothing: 'antialiased',
           },
           '.fyntrac-fade-in': {
-            animation: 'fyntracFadeIn 220ms cubic-bezier(0.4, 0, 0.2, 1) both',
+            // Pure opacity fade (no translateY) so page-to-page navigation
+            // glides in instead of jolting up 4px — that vertical jump read
+            // as a flicker. Kept short so it feels instant but smooth.
+            animation: 'fyntracFadeInFast 180ms ease-out both',
           },
           '.fyntrac-pulse': { animation: 'fyntracPulse 1.4s ease-in-out infinite' },
           // Smooth scrollbar
@@ -152,7 +156,12 @@ export function buildMetabaseTheme() {
             borderRadius: 12,
             boxShadow: '0 1px 2px rgba(15,23,42,0.04), 0 1px 3px rgba(15,23,42,0.06)',
             border: `1px solid ${palette.divider}`,
-            transition: 'box-shadow 200ms ease, transform 200ms ease, border-color 200ms ease',
+            transition: 'all 0.3s ease',
+            '&:hover': {
+              transform: 'translateY(-4px)',
+              boxShadow: '0px 12px 24px -4px rgba(100, 116, 139, 0.12)',
+              borderColor: 'rgba(99, 102, 241, 0.3)',
+            },
           },
         },
       },
@@ -217,14 +226,60 @@ export function buildMetabaseTheme() {
         },
       },
       MuiTextField: {
-        styleOverrides: { root: { '& .MuiOutlinedInput-root': { borderRadius: 8 } } },
+        defaultProps: { size: 'small' },
+        styleOverrides: {
+          root: {
+            '& .MuiOutlinedInput-root': { borderRadius: '10px' },
+          },
+        },
       },
       MuiOutlinedInput: {
         styleOverrides: {
           root: {
-            borderRadius: 8,
-            '& fieldset': { borderColor: palette.divider },
-            '&:hover fieldset': { borderColor: '#cbd5e1' },
+            borderRadius: '10px',
+            backgroundColor: '#F8FAFC',
+            fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif',
+            fontSize: '0.88rem',
+            transition: 'all 0.2s',
+            '& .MuiOutlinedInput-notchedOutline': {
+              borderColor: 'rgba(148, 163, 184, 0.2)',
+              borderWidth: '1px',
+              transition: 'all 0.2s',
+            },
+            '&:hover': {
+              backgroundColor: '#FFFFFF',
+              '& .MuiOutlinedInput-notchedOutline': {
+                borderColor: '#818CF8',
+                borderWidth: '1px',
+              },
+            },
+            '&.Mui-focused': {
+              backgroundColor: '#FFFFFF',
+              boxShadow: '0 0 0 4px rgba(99, 102, 241, 0.1)',
+              '& .MuiOutlinedInput-notchedOutline': {
+                borderColor: '#6366F1',
+                borderWidth: '1.5px',
+              },
+            },
+            '&.Mui-disabled': {
+              backgroundColor: '#F8FAFC',
+              cursor: 'default',
+              '& .MuiOutlinedInput-notchedOutline': {
+                borderColor: 'rgba(148, 163, 184, 0.2)',
+                borderWidth: '1px',
+              },
+            },
+          },
+        },
+      },
+      MuiInputLabel: {
+        styleOverrides: {
+          root: {
+            fontFamily: '"Inter", "Helvetica Neue", Arial, sans-serif',
+            fontSize: '0.88rem',
+            color: '#64748B',
+            '&.Mui-focused': { color: '#6366F1' },
+            '&.Mui-disabled': { color: '#94A3B8' },
           },
         },
       },
@@ -232,8 +287,9 @@ export function buildMetabaseTheme() {
         styleOverrides: {
           root: {
             borderRadius: 8,
-            transition: 'background-color 160ms ease, color 160ms ease, padding-left 160ms ease',
-            '&:hover': { transform: 'translateX(2px)' },
+            position: 'relative',
+            overflow: 'hidden',
+            transition: 'background-color 160ms ease, color 160ms ease',
             '&.Mui-selected': {
               backgroundColor: t.brand.indigoBg,
               color: t.brand.indigoDark,
@@ -265,16 +321,30 @@ export function buildMetabaseTheme() {
       MuiTooltip: {
         styleOverrides: {
           tooltip: {
-            backgroundColor: t.brand.black,
+            backgroundColor: '#1E293B',
             fontSize: '0.75rem',
-            fontWeight: 500,
+            fontWeight: 600,
             borderRadius: 6,
-            paddingInline: 8,
+            padding: '6px 10px',
           },
         },
       },
       MuiDialog: {
-        styleOverrides: { paper: { borderRadius: 16 } },
+        styleOverrides: { paper: { borderRadius: 16, minWidth: 480 } },
+      },
+      MuiDialogActions: {
+        styleOverrides: {
+          root: {
+            padding: '16px 24px 24px 24px',
+          },
+        },
+      },
+      MuiDialogContent: {
+        styleOverrides: {
+          root: {
+            paddingTop: '24px !important',
+          },
+        },
       },
     },
   });

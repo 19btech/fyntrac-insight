@@ -2,7 +2,6 @@ import React from 'react';
 import { Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import TableChartIcon from '@mui/icons-material/TableChart';
-import DataObjectIcon from '@mui/icons-material/DataObject';
 
 export default function DownloadMenu({ anchorEl, onClose, data = [], cardRef }) {
   const downloadPng = async () => {
@@ -33,17 +32,6 @@ export default function DownloadMenu({ anchorEl, onClose, data = [], cardRef }) 
     onClose();
   };
 
-  const downloadJson = () => {
-    if (!data.length) { onClose(); return; }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const link = document.createElement('a');
-    link.download = 'data.json';
-    link.href = URL.createObjectURL(blob);
-    link.click();
-    URL.revokeObjectURL(link.href);
-    onClose();
-  };
-
   return (
     <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={onClose}>
       <MenuItem onClick={downloadPng}>
@@ -53,10 +41,6 @@ export default function DownloadMenu({ anchorEl, onClose, data = [], cardRef }) 
       <MenuItem onClick={downloadCsv}>
         <ListItemIcon><TableChartIcon fontSize="small" /></ListItemIcon>
         <ListItemText>Download CSV</ListItemText>
-      </MenuItem>
-      <MenuItem onClick={downloadJson}>
-        <ListItemIcon><DataObjectIcon fontSize="small" /></ListItemIcon>
-        <ListItemText>Download JSON</ListItemText>
       </MenuItem>
     </Menu>
   );

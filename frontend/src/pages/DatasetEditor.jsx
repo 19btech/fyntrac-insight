@@ -3,11 +3,11 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Typography, TextField, Button, Chip, IconButton, Tooltip, Switch,
   FormControlLabel, Dialog, DialogTitle, DialogContent, DialogActions,
-  Select, MenuItem, FormControl, InputLabel, Alert, CircularProgress,
+  CircularProgress,
   Paper, Link as MuiLink, Snackbar,
 } from '@mui/material';
 import VerifiedIcon from '@mui/icons-material/Verified';
-import SaveIcon from '@mui/icons-material/Save';
+import SaveIcon from '@mui/icons-material/TurnedIn';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CodeIcon from '@mui/icons-material/Code';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
@@ -17,6 +17,8 @@ import { compileSteps } from '../components/dataset-builder/compileSteps';
 import { isHiddenColumn } from '../components/charts/_columnRules';
 import DataTable from '../components/charts/DataTable';
 import useDatasetContextStore from '../store/datasetContextStore';
+import AppToast from '../components/shared/AppToast';
+import SearchSelect from '../components/shared/SearchSelect';
 export default function DatasetEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -231,19 +233,19 @@ export default function DatasetEditor() {
         </Box>
       </Box>
 
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      <AppToast open={!!error} onClose={() => setError('')} message={error} severity="error" />
 
       {/* Source picker */}
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Chip size="small" label="From" sx={{ fontWeight: 700 }} />
-          <FormControl size="small" sx={{ minWidth: 240 }}>
-            <InputLabel>Source table</InputLabel>
-            <Select label="Source table" value={sourceCollection}
-              onChange={(e) => setSourceCollection(e.target.value)}>
-              {collections.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-            </Select>
-          </FormControl>
+          <SearchSelect
+            value={sourceCollection}
+            onChange={setSourceCollection}
+            options={collections.map((c) => ({ value: c, label: c }))}
+            label="Source table"
+            width={240}
+          />
           {previewData?.stepCounts !== undefined && sourceCollection && (
             <Typography variant="caption" color="text.secondary">
               {sampleMode ? `Working on a sample of ${sampleSize.toLocaleString()} rows` : 'Working on the full table'}
@@ -346,30 +348,7 @@ export default function DatasetEditor() {
         </Paper>
       )}
 
-      {/* Preview-run toast */}
-      <Snackbar
-        open={!!previewMsg}
-        autoHideDuration={2500}
-        onClose={() => setPreviewMsg('')}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Alert
-          severity="success"
-          variant="filled"
-          icon={false}
-          onClose={() => setPreviewMsg('')}
-          sx={{
-            bgcolor: '#dcfce7',
-            color: '#166534',
-            fontWeight: 600,
-            border: '1px solid #bbf7d0',
-            boxShadow: '0 6px 16px rgba(22,163,74,0.15)',
-            '& .MuiAlert-action': { color: '#166534' },
-          }}
-        >
-          {previewMsg}
-        </Alert>
-      </Snackbar>
+      <AppToast open={!!previewMsg} onClose={() => setPreviewMsg('')} message={previewMsg} />
 
       {/* Pipeline dialog */}
       <Dialog open={pipelineDialog} onClose={() => setPipelineDialog(false)} maxWidth="md" fullWidth>

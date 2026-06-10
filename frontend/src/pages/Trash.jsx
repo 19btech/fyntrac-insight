@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  Box, Typography, Button, Table, TableBody, TableCell, TableHead, TableRow,
+  Box, Typography, Button, Stack, Table, TableBody, TableCell, TableHead, TableRow,
   IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions,
   Fade, Paper, Snackbar, Alert,
 } from '@mui/material';
@@ -9,6 +9,9 @@ import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import api from '../hooks/useQuery';
+import AppToast from '../components/shared/AppToast';
+import BrandedDialogTitle from '../components/shared/BrandedDialogTitle';
+import ADD_BUTTON_SX from '../components/shared/addButtonSx';
 
 const TYPE_CONFIG = {
   dashboard: { label: 'Dashboard', bgcolor: '#eff6ff', color: '#1e40af', border: '#bfdbfe' },
@@ -78,35 +81,23 @@ export default function TrashPage() {
 
   return (
     <Fade in={mounted} timeout={400}>
-      <Box sx={{ p: { xs: 2, md: 3 } }}>
+      <Box>
         {/* Header */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
-          <Box sx={{
-            width: 36, height: 36, borderRadius: 2, bgcolor: '#fef2f2',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            <DeleteOutlineIcon sx={{ fontSize: 20, color: '#dc2626' }} />
-          </Box>
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="h5" fontWeight={700} color="#0f172a">Trash</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Items here are kept until you permanently delete them or empty the trash.
-            </Typography>
-          </Box>
-          <Button
-            startIcon={<DeleteSweepIcon />}
-            onClick={() => setConfirmEmpty(true)}
-            disabled={items.length === 0}
-            sx={{
-              borderRadius: 2, fontWeight: 600, textTransform: 'none', boxShadow: 'none',
-              bgcolor: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca',
-              '&:hover': { bgcolor: '#fee2e2', borderColor: '#fca5a5', boxShadow: 'none' },
-              '&.Mui-disabled': { bgcolor: '#fef2f2', color: '#fca5a5', borderColor: '#fee2e2' },
-            }}
-          >
-            Empty trash
-          </Button>
-        </Box>
+        <Stack direction="row" alignItems="center" justifyContent="space-between"
+          sx={{ pt: 1.5, pl: 1.5, pb: 2, mb: 4, borderBottom: '1.5px solid rgba(148, 163, 184, 0.2)' }}>
+          <Typography variant="h5" sx={{ fontWeight: 600, letterSpacing: '-0.5px', color: 'text.primary' }}>Trash</Typography>
+          <Tooltip title="Empty trash">
+            <span>
+              <IconButton
+                onClick={() => setConfirmEmpty(true)}
+                disabled={items.length === 0}
+                sx={ADD_BUTTON_SX}
+              >
+                <DeleteSweepIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Stack>
 
         {items.length === 0 ? (
           <Paper variant="outlined" sx={{ borderRadius: 2, py: 10, textAlign: 'center', bgcolor: '#fafafa' }}>
@@ -159,10 +150,11 @@ export default function TrashPage() {
                         </Tooltip>
                         <Tooltip title="Delete permanently">
                           <IconButton size="small" onClick={() => setPermaTarget(item)} sx={{
-                            color: '#dc2626', bgcolor: '#fef2f2', width: 28, height: 28,
-                            '&:hover': { bgcolor: '#fee2e2' },
+                            width: 32, height: 32, borderRadius: 1.5,
+                            color: '#94a3b8',
+                            '&:hover': { color: '#dc2626', bgcolor: '#fef2f2' },
                           }}>
-                            <DeleteForeverIcon sx={{ fontSize: 16 }} />
+                            <DeleteOutlineIcon sx={{ fontSize: 17 }} />
                           </IconButton>
                         </Tooltip>
                       </TableCell>
@@ -181,32 +173,15 @@ export default function TrashPage() {
           maxWidth="xs"
           PaperProps={{ sx: { borderRadius: 2 } }}
         >
-          <DialogTitle sx={{ fontWeight: 700, color: '#0f172a', pb: 1 }}>Empty trash?</DialogTitle>
+          <BrandedDialogTitle label="Trash" title="Empty Trash" onClose={() => setConfirmEmpty(false)} />
           <DialogContent>
             <Typography variant="body2" color="text.secondary">
               This permanently deletes{' '}
               <strong>{items.length} item{items.length === 1 ? '' : 's'}</strong>. This cannot be undone.
             </Typography>
           </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
-            <Button
-              onClick={() => setConfirmEmpty(false)}
-              sx={{
-                borderRadius: 2, textTransform: 'none', fontWeight: 600, boxShadow: 'none',
-                color: '#475569', bgcolor: '#f8fafc', border: '1px solid #e2e8f0',
-                '&:hover': { bgcolor: '#e2e8f0', boxShadow: 'none' },
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={emptyTrash}
-              sx={{
-                borderRadius: 2, textTransform: 'none', fontWeight: 700, boxShadow: 'none',
-                bgcolor: '#dc2626', color: '#fff',
-                '&:hover': { bgcolor: '#b91c1c', boxShadow: 'none' },
-              }}
-            >
+          <DialogActions sx={{ px: 3, pb: 2.5 }}>
+            <Button onClick={emptyTrash} sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700, boxShadow: 'none', bgcolor: '#14213d', color: '#fff', '&:hover': { bgcolor: '#0a1628', boxShadow: 'none' } }}>
               Empty trash
             </Button>
           </DialogActions>
@@ -214,46 +189,20 @@ export default function TrashPage() {
 
         {/* Permanent delete confirm dialog */}
         <Dialog open={!!permaTarget} onClose={() => setPermaTarget(null)} maxWidth="xs" PaperProps={{ sx: { borderRadius: 2 } }}>
-          <DialogTitle sx={{ fontWeight: 700, color: '#0f172a', pb: 1 }}>Permanently delete?</DialogTitle>
+          <BrandedDialogTitle label="Trash" title="Permanently Delete" onClose={() => setPermaTarget(null)} />
           <DialogContent>
             <Typography variant="body2" color="text.secondary">
               <strong>{permaTarget?.name}</strong> will be permanently deleted. This cannot be undone.
             </Typography>
           </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
-            <Button
-              onClick={() => setPermaTarget(null)}
-              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, boxShadow: 'none', color: '#475569', bgcolor: '#f8fafc', border: '1px solid #e2e8f0', '&:hover': { bgcolor: '#e2e8f0', boxShadow: 'none' } }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={permaDelete}
-              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700, boxShadow: 'none', bgcolor: '#dc2626', color: '#fff', '&:hover': { bgcolor: '#b91c1c', boxShadow: 'none' } }}
-            >
+          <DialogActions sx={{ px: 3, pb: 2.5 }}>
+            <Button onClick={permaDelete} sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700, boxShadow: 'none', bgcolor: '#14213d', color: '#fff', '&:hover': { bgcolor: '#0a1628', boxShadow: 'none' } }}>
               Delete permanently
             </Button>
           </DialogActions>
         </Dialog>
 
-        <Snackbar
-          open={toast.open}
-          onClose={() => setToast((t) => ({ ...t, open: false }))}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-          autoHideDuration={3000}
-        >
-          <Alert
-            severity={toast.ok ? 'success' : 'error'}
-            variant="filled"
-            icon={false}
-            onClose={() => setToast((t) => ({ ...t, open: false }))}
-            sx={toast.ok
-              ? { bgcolor: '#dcfce7', color: '#166534', fontWeight: 600, border: '1px solid #bbf7d0', '& .MuiAlert-action': { color: '#166534' } }
-              : { bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 600, border: '1px solid #fecaca', '& .MuiAlert-action': { color: '#991b1b' } }}
-          >
-            {toast.msg}
-          </Alert>
-        </Snackbar>
+        <AppToast open={toast.open} onClose={() => setToast((t) => ({ ...t, open: false }))} message={toast.msg} severity={toast.ok ? 'success' : 'error'} />
       </Box>
     </Fade>
   );

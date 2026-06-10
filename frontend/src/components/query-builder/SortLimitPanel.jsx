@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Box, Typography, Select, MenuItem, FormControl, InputLabel, TextField,
+  Box, Typography, TextField, MenuItem,
   Button, IconButton, Stack, Chip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -9,13 +9,11 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import FieldPicker from './FieldPicker';
 
-/**
- * Multi-field sort panel.
- *
- * `sorts` is an ordered array of `{ field, dir }` — the first row is the
- * primary sort, the next is a tie-breaker, and so on. The numeric chip
- * shows the precedence so the user knows which field wins.
- */
+const DIR_OPTIONS = [
+  { value: 'asc', label: 'Ascending' },
+  { value: 'desc', label: 'Descending' },
+];
+
 export default function SortLimitPanel({
   collection, sorts = [], limit, onSortsChange, onLimitChange,
 }) {
@@ -57,17 +55,15 @@ export default function SortLimitPanel({
               onChange={(v) => update(i, { field: v })}
               label="Field"
             />
-            <FormControl size="small" sx={{ minWidth: 110 }}>
-              <InputLabel>Direction</InputLabel>
-              <Select
-                label="Direction"
-                value={s.dir || 'desc'}
-                onChange={(e) => update(i, { dir: e.target.value })}
-              >
-                <MenuItem value="asc">Ascending</MenuItem>
-                <MenuItem value="desc">Descending</MenuItem>
-              </Select>
-            </FormControl>
+            <TextField
+              select size="small"
+              value={s.dir || 'desc'}
+              onChange={(e) => update(i, { dir: e.target.value })}
+              label="Direction"
+              sx={{ width: 140 }}
+            >
+              {DIR_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+            </TextField>
             <IconButton size="small" onClick={() => move(i, -1)} disabled={i === 0}>
               <ArrowUpwardIcon fontSize="small" />
             </IconButton>

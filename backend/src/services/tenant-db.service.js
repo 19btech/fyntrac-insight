@@ -153,3 +153,22 @@ async function tenantDbMiddleware(req, res, next) {
 }
 
 module.exports = { getTenantConnection, registerSchema, getModel, tenantDbMiddleware, DB_SUFFIX };
+
+// Load all model schemas to register them in _schemas Map
+require('../models/AISettings.model');
+require('../models/Alert.model');
+require('../models/AuditLog.model');
+require('../models/Bookmark.model');
+require('../models/Collection.model');
+require('../models/Comment.model');
+require('../models/Dashboard.model');
+require('../models/Metric.model');
+require('../models/Question.model');
+require('../models/Recon.model');
+require('../models/ReconCsvFile.model');
+require('../models/ReconRun.model');
+require('../models/SavedModel.model');
+require('../models/SavedQuery.model');
+require('../models/ShareToken.model');
+require('../models/SqlExport.model');
+require('../models/Subscription.model');

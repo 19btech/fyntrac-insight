@@ -1,11 +1,12 @@
 const router = require('express').Router();
-const Metric = require('../models/Metric.model');
-const SavedModel = require('../models/SavedModel.model');
-const Question = require('../models/Question.model');
 const mongoService = require('../services/mongo.service');
-const AuditLog = require('../models/AuditLog.model');
+const duckdbService = require('../services/duckdb.service');
 const { compileKpi, compileSide, buildMatch, comparisonMatch, coerceValue: compilerCoerceValue } = require('../services/kpi-compiler.service');
 const { compileSavedFilter } = require('../services/saved-filter.service');
+require('../models/Metric.model');
+require('../models/SavedModel.model');
+require('../models/Question.model');
+require('../models/AuditLog.model');
 
 // executePipeline's normalizeBson converts BSON Dates to ISO strings.
 // This regex lets us detect and convert them back to Date objects where needed.
@@ -58,7 +59,7 @@ async function resolveSource(metric, user) {
   const cacheKey = _sourceKey(user.tenantId, src.kind, String(src.id));
   const cached = _sourceCache.get(cacheKey);
   if (cached && (Date.now() - cached.ts) < SOURCE_CACHE_TTL) {
-    return { collection: cached.collection, prefix: cached.prefix };
+    return { collection: cached.collection, prefix: cached.prefix, savedQuerySql: cached.savedQuerySql || '' };
   }
 
   let result;
@@ -66,7 +67,10 @@ async function resolveSource(metric, user) {
     if (!src.id) throw new Error('source.id required for dataset source');
     const ds = await user.getModel('SavedModel').findOne({ _id: src.id, tenantId: user.tenantId, archived: { $ne: true } });
     if (!ds) throw new Error('Source dataset not found');
-    result = { collection: ds.sourceCollection, prefix: ds.pipeline || [] };
+    // SQL-backed datasets define their columns in DuckDB, not a Mongo pipeline —
+    // surface the query so evaluation can run against the SQL output.
+    const savedQuerySql = ds.sourceMode === 'savedQuery' ? (ds.savedQuerySql || '') : '';
+    result = { collection: ds.sourceCollection, prefix: ds.pipeline || [], savedQuerySql };
   } else if (src.kind === 'question') {
     if (!src.id) throw new Error('source.id required for question source');
     const q = await user.getModel('Question').findOne({ _id: src.id, tenantId: user.tenantId, archived: { $ne: true } });
@@ -161,6 +165,108 @@ router.post('/', async (req, res) => {
  * @param {object} user    req.user ({ tenantId, userId, … })
  * @returns {{ value, trendValue, comparison, currentPeriodValue, previousPeriodValue, executionTimeMs }}
  */
+// ── SQL-dataset KPI evaluation ──────────────────────────────────────────────
+// Datasets built from a Prism/DuckDB query define their columns in SQL, so the
+// Mongo aggregation engine can't see them. For these we wrap the dataset SQL as
+// a subquery and compute the KPI (numerator/denominator + current/previous
+// period) directly in DuckDB.
+
+const _SQL_NUM_RX = /^-?\d+(\.\d+)?$/;
+const _SQL_DAY_RX = /^\d{4}-\d{2}-\d{2}$/;
+const sqlIdent = (name) => `"${String(name).replace(/"/g, '""')}"`;
+const sqlStr = (v) => `'${String(v).replace(/'/g, "''")}'`;
+const sqlLiteral = (v) => (typeof v === 'number' || _SQL_NUM_RX.test(String(v)) ? String(v) : sqlStr(v));
+const sqlAgg = (agg, field) => {
+  if (agg === '$count') return 'COUNT(*)';
+  const fn = { $sum: 'SUM', $avg: 'AVG', $min: 'MIN', $max: 'MAX' }[agg] || 'SUM';
+  return `${fn}(${sqlIdent(field)})`;
+};
+
+/** Translate KPI filters into a SQL WHERE fragment (null when none apply). */
+function sqlWhere(filters) {
+  const clauses = [];
+  for (const f of filters || []) {
+    if (!f || !f.field || !f.operator) continue;
+    const col = sqlIdent(f.field);
+    if (f.operator === '$exists') { clauses.push(`${col} IS NOT NULL`); continue; }
+    if (f.operator === '$in' || f.operator === '$nin') {
+      const vals = (Array.isArray(f.value) ? f.value : String(f.value || '').split(','))
+        .map((v) => (typeof v === 'string' ? v.trim() : v))
+        .filter((v) => v !== '' && v != null)
+        .map(sqlLiteral);
+      if (vals.length) clauses.push(`${col} ${f.operator === '$nin' ? 'NOT IN' : 'IN'} (${vals.join(', ')})`);
+      continue;
+    }
+    if (f.operator === '$regex') { clauses.push(`CAST(${col} AS VARCHAR) ILIKE ${sqlStr(`%${f.value}%`)}`); continue; }
+    if (f.operator === '$eq' && _SQL_DAY_RX.test(String(f.value))) {
+      clauses.push(`CAST(${col} AS DATE) = ${sqlStr(f.value)}`); continue; // day-equality
+    }
+    const op = { $eq: '=', $ne: '<>', $gt: '>', $gte: '>=', $lt: '<', $lte: '<=' }[f.operator];
+    if (op) clauses.push(`${col} ${op} ${sqlLiteral(f.value)}`);
+  }
+  return clauses.length ? clauses.join(' AND ') : null;
+}
+
+async function evaluateSqlDatasetKpi(metric, datasetSql, user) {
+  const start = Date.now();
+  const def = metric.definition || {};
+  const inner = String(datasetSql).replace(/;\s*$/, '');
+  const periodField = def.periodField || null;
+  const comparison = def.comparison || (metric.trend?.enabled ? 'lastPeriod' : 'none');
+
+  if (!def.numerator) {
+    return { value: null, trendValue: null, comparison, currentPeriodValue: null, previousPeriodValue: null, executionTimeMs: Date.now() - start };
+  }
+
+  const runScalar = async (sql) => {
+    const r = await duckdbService.runQuery({ sql, user, page: 0, pageSize: 1 });
+    const v = (r.rows || [])[0]?.value;
+    return v == null ? null : v;
+  };
+
+  // Current / previous period values (compared as VARCHAR for type-safety).
+  let currentPeriod = null;
+  let previousPeriod = null;
+  if (periodField) {
+    const pf = sqlIdent(periodField);
+    const pr = await duckdbService.runQuery({
+      sql: `SELECT CAST(${pf} AS VARCHAR) AS value FROM (${inner}) AS _ds WHERE ${pf} IS NOT NULL GROUP BY ${pf} ORDER BY ${pf} DESC LIMIT 2`,
+      user, page: 0, pageSize: 2,
+    });
+    const ps = (pr.rows || []).map((r) => r.value);
+    currentPeriod = ps[0] ?? null;
+    previousPeriod = ps[1] ?? null;
+  }
+
+  // Aggregate one side of the KPI, scoped to a period value when present.
+  const aggValue = async (side, periodVal) => {
+    const where = [];
+    const w = sqlWhere([...(def.filters || []), ...(side.filters || [])]);
+    if (w) where.push(w);
+    if (periodField && periodVal != null) where.push(`CAST(${sqlIdent(periodField)} AS VARCHAR) = ${sqlStr(periodVal)}`);
+    const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+    return runScalar(`SELECT ${sqlAgg(side.agg || '$sum', side.field || '')} AS value FROM (${inner}) AS _ds${clause}`);
+  };
+
+  const computeValue = async (periodVal) => {
+    const numV = await aggValue(def.numerator, periodVal);
+    const den = def.denominator;
+    if (den && den.agg && (den.agg === '$count' || den.field)) {
+      const denV = await aggValue(den, periodVal);
+      return (denV != null && Number(denV) > 0) ? Number(numV || 0) / Number(denV) : null;
+    }
+    return numV;
+  };
+
+  const value = await computeValue(periodField ? currentPeriod : null);
+  let trendValue = null;
+  if (comparison && comparison !== 'none' && periodField && previousPeriod != null) {
+    trendValue = await computeValue(previousPeriod);
+  }
+
+  return { value, trendValue, comparison, currentPeriodValue: currentPeriod, previousPeriodValue: previousPeriod, executionTimeMs: Date.now() - start };
+}
+
 async function runEvaluation(metric, user) {
   const start = Date.now();
   const def = metric.definition;
@@ -168,6 +274,11 @@ async function runEvaluation(metric, user) {
   const periodField = def?.periodField || null;
 
   const resolved = await resolveSource(metric, user); // throws if source is missing
+
+  // SQL-backed datasets evaluate via DuckDB, not the Mongo aggregation engine.
+  if (resolved.savedQuerySql) {
+    return evaluateSqlDatasetKpi(metric, resolved.savedQuerySql, user);
+  }
 
   // ── Date helpers ──────────────────────────────────────────────────────────
   const startOfDayUTC = (d) => { const x = new Date(d); x.setUTCHours(0, 0, 0, 0); return x; };
@@ -394,44 +505,6 @@ router.post('/evaluate-preview', async (req, res) => {
 //      periodField in the source collection.
 //   4. Current + previous aggregations are fused into a single $facet stage
 //      for structured-definition KPIs, halving the number of collection scans.
-router.post('/:id/evaluate', async (req, res) => {
-  try {
-    const metric = await req.model('Metric').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
-    if (!metric) return res.status(404).json({ error: 'Metric not found' });
-
-    // ── Result cache ──────────────────────────────────────────────────────
-    const ek = _evalKey(req.user.tenantId, String(metric._id));
-    const ec = _evalCache.get(ek);
-    if (ec && (Date.now() - ec.ts) < EVAL_CACHE_TTL) return res.json(ec.data);
-
-    const { value, trendValue, comparison, currentPeriodValue, previousPeriodValue, executionTimeMs } =
-      await runEvaluation(metric, req.user);
-
-    req.model('AuditLog').create({
-      tenantId: req.user.tenantId, userId: req.user.userId,
-      action: 'metric.evaluate', resourceId: metric._id, resourceType: 'metric', executionTimeMs,
-    }).catch(() => {});
-
-    const payload = {
-      metricId: metric._id,
-      name: metric.name,
-      value,
-      trendValue,
-      comparison,
-      currentPeriod:  currentPeriodValue,
-      previousPeriod: previousPeriodValue,
-      format:  metric.format,
-      targets: metric.targets,
-      executionTimeMs,
-    };
-
-    _evalCache.set(ek, { data: payload, ts: Date.now() });
-    res.json(payload);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 /**
  * Batch evaluation — evaluate many metrics in one request so list pages (KPIs,
  * dashboards) don't fire N separate /evaluate calls. Body: { ids: [...] }.
@@ -473,6 +546,44 @@ router.post('/evaluate-batch', async (req, res) => {
     const CONCURRENCY = 6;
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
     res.json(out);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/evaluate', async (req, res) => {
+  try {
+    const metric = await req.model('Metric').findOne({ _id: req.params.id, tenantId: req.user.tenantId });
+    if (!metric) return res.status(404).json({ error: 'Metric not found' });
+
+    // ── Result cache ──────────────────────────────────────────────────────
+    const ek = _evalKey(req.user.tenantId, String(metric._id));
+    const ec = _evalCache.get(ek);
+    if (ec && (Date.now() - ec.ts) < EVAL_CACHE_TTL) return res.json(ec.data);
+
+    const { value, trendValue, comparison, currentPeriodValue, previousPeriodValue, executionTimeMs } =
+      await runEvaluation(metric, req.user);
+
+    req.model('AuditLog').create({
+      tenantId: req.user.tenantId, userId: req.user.userId,
+      action: 'metric.evaluate', resourceId: metric._id, resourceType: 'metric', executionTimeMs,
+    }).catch(() => {});
+
+    const payload = {
+      metricId: metric._id,
+      name: metric.name,
+      value,
+      trendValue,
+      comparison,
+      currentPeriod:  currentPeriodValue,
+      previousPeriod: previousPeriodValue,
+      format:  metric.format,
+      targets: metric.targets,
+      executionTimeMs,
+    };
+
+    _evalCache.set(ek, { data: payload, ts: Date.now() });
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

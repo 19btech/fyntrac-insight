@@ -56,7 +56,14 @@ export function useFynbaseChatRuntime(getContext, initialMessages) {
         await new Promise((resolve) => { wake = resolve; });
       }
 
-      if (error && !(abortSignal && abortSignal.aborted)) throw error;
+      // Surface failures as readable assistant text (the backend has already
+      // mapped them to layman-friendly messages) rather than throwing a raw
+      // error, so the user always sees a clear, actionable explanation in-chat.
+      if (error && !(abortSignal && abortSignal.aborted)) {
+        const friendly = error.message || 'Something went wrong. Please try again.';
+        acc += (acc ? '\n\n' : '') + `⚠️ ${friendly}`;
+        yield { content: [{ type: 'text', text: acc }] };
+      }
     },
   }, (initialMessages && initialMessages.length) ? { initialMessages } : undefined);
 }

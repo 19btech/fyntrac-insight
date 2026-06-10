@@ -26,15 +26,46 @@ export async function streamSSE(path, body, onChunk, signal) {
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    // Pre-stream / transport failure (auth gateway, network, infra) — the body
+    // is not an SSE stream here, so produce a friendly message from the status.
+    let friendly = 'Something went wrong reaching the assistant. Please try again.';
+    if (response.status === 401 || response.status === 403) {
+      friendly = 'Your session has expired. Please refresh the page and sign back in.';
+    } else if (response.status === 429) {
+      friendly = "I'm getting a lot of requests right now. Give me a few seconds and try again.";
+    } else if (response.status >= 500) {
+      friendly = 'The assistant is temporarily unavailable. Please try again in a moment.';
+    }
+    const e = new Error(friendly);
+    e.code = 'transport';
+    e.httpStatus = response.status;
+    throw e;
   }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
 
+  // Backstop watchdog: if the backend wedges and sends nothing for this long,
+  // give up gracefully instead of spinning forever. The server has its own
+  // (shorter) timeouts, so this only fires if the server itself is unreachable.
+  const IDLE_MS = 120000;
+  const readWithTimeout = () => Promise.race([
+    reader.read(),
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('The assistant took too long to respond. Please try again.')), IDLE_MS);
+    }),
+  ]);
+
   while (true) {
-    const { done, value } = await reader.read();
+    let res;
+    try {
+      res = await readWithTimeout();
+    } catch (e) {
+      reader.cancel().catch(() => {});
+      throw e;
+    }
+    const { done, value } = res;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     // SSE messages are terminated by a blank line ("\n\n"), NOT a single "\n".
@@ -59,7 +90,14 @@ export async function streamSSE(path, body, onChunk, signal) {
         // Malformed payload — skip this message.
         continue;
       }
-      if (parsed.error) throw new Error(parsed.error);
+      if (parsed.error) {
+        // Backend already classified this into layman-friendly text; carry the
+        // category/retryable hint along for callers that special-case them.
+        const e = new Error(parsed.error);
+        e.code = parsed.code;
+        e.retryable = parsed.retryable;
+        throw e;
+      }
       if (parsed.text) onChunk(parsed.text);
     }
   }

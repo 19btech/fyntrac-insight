@@ -1,7 +1,65 @@
 const router = require('express').Router();
 const aiService = require('../services/ai.service');
 const schemaService = require('../services/schema.service');
-const AuditLog = require('../models/AuditLog.model');
+const { classifyAIError } = require('../services/ai-errors.service');
+require('../models/AuditLog.model');
+
+/**
+ * Emit a layman-friendly error over an already-open SSE stream, then close it.
+ * The full error is logged server-side; only the friendly text reaches the browser.
+ */
+function sseError(res, err, tag) {
+  const info = classifyAIError(err);
+  // eslint-disable-next-line no-console
+  console.error(`[${tag}] AI error (${info.code}):`, err?.message || err);
+  res.write(`data: ${JSON.stringify({ error: info.userMessage, code: info.code, retryable: info.retryable })}\n\n`);
+  res.write('data: [DONE]\n\n');
+  res.end();
+}
+
+/** Same, for non-streaming JSON endpoints. */
+function jsonError(res, err, tag) {
+  const info = classifyAIError(err);
+  // eslint-disable-next-line no-console
+  console.error(`[${tag}] AI error (${info.code}):`, err?.message || err);
+  res.status(info.httpStatus || 500).json({ error: info.userMessage, code: info.code, retryable: info.retryable });
+}
+
+// A provider call can wedge without ever throwing or completing (e.g. an SDK
+// that doesn't understand a newer model's response format), which would leave
+// the SSE stream — and the chat UI — spinning forever. These guard against that.
+const FIRST_TOKEN_TIMEOUT_MS = 60000; // allow a "thinking" model time before its first token
+const IDLE_TIMEOUT_MS = 30000;        // max gap between tokens once flowing
+const EMPTY_RESPONSE_MSG =
+  "I wasn't able to generate a response that time. Please try again, or rephrase your question.";
+
+/**
+ * Wrap an async iterable so a stall (no first token, or a long gap between
+ * tokens) rejects instead of hanging forever. On timeout/break we close the
+ * underlying iterator so the provider stream is not left dangling.
+ */
+async function* withInactivityTimeout(iterable, { firstMs, idleMs }) {
+  const it = iterable[Symbol.asyncIterator]();
+  let first = true;
+  try {
+    while (true) {
+      let timer;
+      const limit = first ? firstMs : idleMs;
+      // eslint-disable-next-line no-await-in-loop
+      const result = await Promise.race([
+        it.next(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('The assistant timed out waiting for the AI model')), limit);
+        }),
+      ]).finally(() => clearTimeout(timer));
+      first = false;
+      if (result.done) return;
+      yield result.value;
+    }
+  } finally {
+    if (typeof it.return === 'function') it.return().catch(() => {});
+  }
+}
 
 /**
  * Build schema context for AI prompts: list of { name, fields[] }
@@ -28,18 +86,34 @@ router.post('/chat', async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
+  // Stop writing as soon as the user navigates away / closes the panel so we
+  // don't keep streaming into a dead socket. NOTE: listen on `res`, not `req` —
+  // for a POST SSE endpoint `req`'s 'close' fires as soon as the request body
+  // is consumed (while the client is still connected), which would abort the
+  // response before any chunk is written. `res` 'close' is the real disconnect.
+  let clientGone = false;
+  res.on('close', () => { if (!res.writableEnded) clientGone = true; });
+
   try {
     const schemaContext = await buildSchemaContext(req.user);
     const stream = aiService.streamChatResponse(messages, schemaContext, req.user, dashboardContext);
 
-    for await (const chunk of stream) {
+    let emittedText = false;
+    for await (const chunk of withInactivityTimeout(stream, { firstMs: FIRST_TOKEN_TIMEOUT_MS, idleMs: IDLE_TIMEOUT_MS })) {
+      if (clientGone) return;
+      if (chunk && chunk.trim()) emittedText = true;
       res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+    }
+    // Completed cleanly but with no content — show a friendly note rather than
+    // leaving an empty assistant bubble.
+    if (!emittedText && !clientGone) {
+      res.write(`data: ${JSON.stringify({ text: EMPTY_RESPONSE_MSG })}\n\n`);
     }
     res.write('data: [DONE]\n\n');
     res.end();
   } catch (err) {
-    res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
-    res.end();
+    if (clientGone) return;
+    sseError(res, err, 'ai/chat');
   }
 });
 
@@ -55,7 +129,7 @@ router.post('/generate-pipeline', async (req, res) => {
     const result = await aiService.generatePipeline(naturalLanguage, schemaContext, req.user);
     res.json({ result });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    jsonError(res, err, 'ai/generate-pipeline');
   }
 });
 
@@ -70,18 +144,29 @@ router.post('/insight', async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
+  // See the /chat handler — listen on `res`, not `req`, so the request-body
+  // 'close' on a POST doesn't abort the stream before it starts.
+  let clientGone = false;
+  res.on('close', () => { if (!res.writableEnded) clientGone = true; });
+
   try {
     const schemaContext = await buildSchemaContext(req.user);
     const stream = aiService.streamInsight(chartData, chartConfig, schemaContext, req.user);
 
-    for await (const chunk of stream) {
+    let emittedText = false;
+    for await (const chunk of withInactivityTimeout(stream, { firstMs: FIRST_TOKEN_TIMEOUT_MS, idleMs: IDLE_TIMEOUT_MS })) {
+      if (clientGone) return;
+      if (chunk && chunk.trim()) emittedText = true;
       res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+    }
+    if (!emittedText && !clientGone) {
+      res.write(`data: ${JSON.stringify({ text: EMPTY_RESPONSE_MSG })}\n\n`);
     }
     res.write('data: [DONE]\n\n');
     res.end();
   } catch (err) {
-    res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
-    res.end();
+    if (clientGone) return;
+    sseError(res, err, 'ai/insight');
   }
 });
 
@@ -95,7 +180,7 @@ router.post('/suggestions', async (req, res) => {
     const suggestions = await aiService.getSuggestions(collection, fields, req.user);
     res.json({ suggestions });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    jsonError(res, err, 'ai/suggestions');
   }
 });
 
@@ -115,7 +200,7 @@ router.post('/plan', async (req, res) => {
     }).catch(() => {});
     res.json(plan);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    jsonError(res, err, 'ai/plan');
   }
 });
 
@@ -135,7 +220,7 @@ router.post('/explain', async (req, res) => {
     }).catch(() => {});
     res.json(out);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    jsonError(res, err, 'ai/explain');
   }
 });
 
@@ -152,7 +237,7 @@ router.post('/mapping-suggest', async (req, res) => {
     );
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    jsonError(res, err, 'ai/mapping-suggest');
   }
 });
 
@@ -164,7 +249,7 @@ router.post('/suggest-target', async (req, res) => {
     const result = await aiService.suggestKpiTarget({ name, description, direction }, req.user);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    jsonError(res, err, 'ai/suggest-target');
   }
 });
 

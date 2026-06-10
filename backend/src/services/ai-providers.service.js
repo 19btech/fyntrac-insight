@@ -1,6 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');
 
 /**
  * Multi-provider AI abstraction. Each function takes a `creds` object
@@ -31,7 +31,7 @@ function clientFor(provider, apiKey) {
   switch (provider) {
     case 'anthropic': return new Anthropic({ apiKey });
     case 'openai': return new OpenAI({ apiKey });
-    case 'gemini': return new GoogleGenerativeAI(apiKey);
+    case 'gemini': return new GoogleGenAI({ apiKey });
     default: throw new Error(`Unknown provider: ${provider}`);
   }
 }
@@ -120,6 +120,57 @@ async function listModels(provider, apiKey) {
   return [];
 }
 
+// Appended (as its own delta) when a provider cut the answer off at max_tokens,
+// so the user understands the reply is incomplete instead of silently truncated.
+const TRUNCATION_NOTICE =
+  "\n\n_…I hit my length limit, so this answer may be cut off. Ask me to \"continue\" and I'll pick up where I left off._";
+const SAFETY_NOTICE = "\n\n_I wasn't able to complete that response. Try rephrasing your question._";
+
+/**
+ * Drain an Anthropic message stream, yielding text deltas and a closing notice
+ * if the model was truncated at max_tokens.
+ */
+async function* anthropicTextDeltas(stream) {
+  let stopReason = null;
+  for await (const chunk of stream) {
+    if (chunk.type === 'message_delta' && chunk.delta?.stop_reason) stopReason = chunk.delta.stop_reason;
+    if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
+      yield chunk.delta.text;
+    }
+  }
+  if (stopReason === 'max_tokens') yield TRUNCATION_NOTICE;
+}
+
+/** Same for an OpenAI chat-completions stream (finish_reason === 'length'). */
+async function* openaiTextDeltas(stream) {
+  let finish = null;
+  for await (const chunk of stream) {
+    const c = chunk.choices?.[0];
+    if (c?.finish_reason) finish = c.finish_reason;
+    const t = c?.delta?.content;
+    if (t) yield t;
+  }
+  if (finish === 'length') yield TRUNCATION_NOTICE;
+}
+
+/**
+ * Same for a Gemini generateContentStream async iterable (@google/genai).
+ * In the new SDK `chunk.text` is a string getter (the legacy SDK exposed it as
+ * a function), so support both shapes.
+ */
+async function* geminiTextDeltas(geminiStream) {
+  let finish = null;
+  for await (const chunk of geminiStream) {
+    const reason = chunk.candidates?.[0]?.finishReason;
+    if (reason && reason !== 'STOP') finish = reason;
+    let t = '';
+    try { t = typeof chunk.text === 'function' ? chunk.text() : (chunk.text || ''); } catch { t = ''; }
+    if (t) yield t;
+  }
+  if (finish === 'MAX_TOKENS') yield TRUNCATION_NOTICE;
+  else if (finish === 'SAFETY' || finish === 'RECITATION') yield SAFETY_NOTICE;
+}
+
 /**
  * Stream a chat completion. Yields plain-text deltas.
  * messages: [{ role: 'user'|'assistant'|'system', content }]
@@ -134,11 +185,7 @@ async function* streamChat({ provider, apiKey, model, system, messages, maxToken
       system,
       messages: messages.filter((x) => x.role !== 'system'),
     });
-    for await (const chunk of stream) {
-      if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
-        yield chunk.delta.text;
-      }
-    }
+    yield* anthropicTextDeltas(stream);
     return;
   }
   if (provider === 'openai') {
@@ -152,17 +199,11 @@ async function* streamChat({ provider, apiKey, model, system, messages, maxToken
         ...messages,
       ],
     });
-    for await (const chunk of stream) {
-      const t = chunk.choices?.[0]?.delta?.content;
-      if (t) yield t;
-    }
+    yield* openaiTextDeltas(stream);
     return;
   }
   if (provider === 'gemini') {
-    const g = clientFor(provider, apiKey).getGenerativeModel({
-      model: m,
-      systemInstruction: system,
-    });
+    const ai = clientFor(provider, apiKey);
     // Convert messages to Gemini "contents" format
     const contents = messages
       .filter((x) => x.role !== 'system')
@@ -170,11 +211,12 @@ async function* streamChat({ provider, apiKey, model, system, messages, maxToken
         role: x.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: x.content }],
       }));
-    const result = await g.generateContentStream({ contents });
-    for await (const chunk of result.stream) {
-      const t = typeof chunk.text === 'function' ? chunk.text() : '';
-      if (t) yield t;
-    }
+    const stream = await ai.models.generateContentStream({
+      model: m,
+      contents,
+      config: { systemInstruction: system, maxOutputTokens: maxTokens },
+    });
+    yield* geminiTextDeltas(stream);
     return;
   }
   throw new Error(`Unsupported provider: ${provider}`);
@@ -305,7 +347,7 @@ const GEMINI_TOOLS = [
       {
         name: 'compute_aggregation',
         description: TOOL_DESC,
-        parameters: {
+        parametersJsonSchema: {
           type: 'object',
           properties: {
             collection: { type: 'string', description: 'MongoDB collection name to query' },
@@ -314,8 +356,8 @@ const GEMINI_TOOLS = [
           required: ['collection', 'pipeline'],
         },
       },
-      { name: 'run_sql', description: RUN_SQL_DESC, parameters: { type: 'object', properties: SQL_PROP, required: ['sql'] } },
-      { name: 'propose_kpi', description: PROPOSE_KPI_DESC, parameters: { type: 'object', properties: KPI_PROPS, required: ['name', 'collection', 'agg'] } },
+      { name: 'run_sql', description: RUN_SQL_DESC, parametersJsonSchema: { type: 'object', properties: SQL_PROP, required: ['sql'] } },
+      { name: 'propose_kpi', description: PROPOSE_KPI_DESC, parametersJsonSchema: { type: 'object', properties: KPI_PROPS, required: ['name', 'collection', 'agg'] } },
     ],
   },
 ];
@@ -393,21 +435,13 @@ async function* streamChatWithTools({
         model: m, max_tokens: maxTokens, system,
         messages: anthropicMessages,
       });
-      for await (const chunk of stream) {
-        if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
-          yield chunk.delta.text;
-        }
-      }
+      yield* anthropicTextDeltas(stream);
       return;
     }
 
     // Max iterations exhausted — stream without tools.
     const stream = a.messages.stream({ model: m, max_tokens: maxTokens, system, messages: anthropicMessages });
-    for await (const chunk of stream) {
-      if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
-        yield chunk.delta.text;
-      }
-    }
+    yield* anthropicTextDeltas(stream);
     return;
   }
 
@@ -444,10 +478,7 @@ async function* streamChatWithTools({
         model: m, max_tokens: maxTokens, stream: true,
         messages: openaiMessages,
       });
-      for await (const chunk of stream) {
-        const t = chunk.choices?.[0]?.delta?.content;
-        if (t) yield t;
-      }
+      yield* openaiTextDeltas(stream);
       return;
     }
 
@@ -455,16 +486,14 @@ async function* streamChatWithTools({
     const stream = await o.chat.completions.create({
       model: m, max_tokens: maxTokens, stream: true, messages: openaiMessages,
     });
-    for await (const chunk of stream) {
-      const t = chunk.choices?.[0]?.delta?.content;
-      if (t) yield t;
-    }
+    yield* openaiTextDeltas(stream);
     return;
   }
 
   // ── Gemini ─────────────────────────────────────────────────────────────────
   if (provider === 'gemini') {
-    const g = clientFor(provider, apiKey).getGenerativeModel({ model: m, systemInstruction: system });
+    const ai = clientFor(provider, apiKey);
+    const baseConfig = { systemInstruction: system, maxOutputTokens: maxTokens };
 
     let geminiContents = messages
       .filter((x) => x.role !== 'system')
@@ -474,8 +503,12 @@ async function* streamChatWithTools({
       }));
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
-      const resp = await g.generateContent({ contents: geminiContents, tools: GEMINI_TOOLS });
-      const candidate = resp.response.candidates?.[0];
+      const resp = await ai.models.generateContent({
+        model: m,
+        contents: geminiContents,
+        config: { ...baseConfig, tools: GEMINI_TOOLS },
+      });
+      const candidate = resp.candidates?.[0];
       const funcCallPart = candidate?.content?.parts?.find((p) => p.functionCall);
 
       if (funcCallPart) {
@@ -494,20 +527,14 @@ async function* streamChatWithTools({
       }
 
       // Stream final answer.
-      const streamResp = await g.generateContentStream({ contents: geminiContents });
-      for await (const chunk of streamResp.stream) {
-        const t = typeof chunk.text === 'function' ? chunk.text() : '';
-        if (t) yield t;
-      }
+      const stream = await ai.models.generateContentStream({ model: m, contents: geminiContents, config: baseConfig });
+      yield* geminiTextDeltas(stream);
       return;
     }
 
     // Max iterations exhausted.
-    const streamResp = await g.generateContentStream({ contents: geminiContents });
-    for await (const chunk of streamResp.stream) {
-      const t = typeof chunk.text === 'function' ? chunk.text() : '';
-      if (t) yield t;
-    }
+    const stream = await ai.models.generateContentStream({ model: m, contents: geminiContents, config: baseConfig });
+    yield* geminiTextDeltas(stream);
     return;
   }
 

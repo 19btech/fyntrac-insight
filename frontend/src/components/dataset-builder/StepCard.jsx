@@ -18,6 +18,7 @@ import FunctionsIcon from '@mui/icons-material/Functions';
 import GroupWorkIcon from '@mui/icons-material/GroupWork';
 import SortIcon from '@mui/icons-material/Sort';
 import Filter1Icon from '@mui/icons-material/Filter1';
+import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline';
 import api from '../../hooks/useQuery';
 import FilterBuilder from '../query-builder/FilterBuilder';
 import SummarizePanel from '../query-builder/SummarizePanel';
@@ -89,6 +90,11 @@ function getDerivedColumns(precedingSteps) {
           (m.agg === '$count' ? 'count' : `${m.agg.replace('$', '')}_${safe(m.field || 'val')}`);
         cols.push({ name: alias, source: 'Summarize metrics' });
       }
+    } else if (s.kind === 'rename') {
+      // A rename surfaces the new column name downstream (the old name is gone).
+      const list = Array.isArray(s.renames) && s.renames.length
+        ? s.renames : (s.from ? [{ from: s.from, to: s.to }] : []);
+      for (const r of list) if (r && r.to) cols.push({ name: r.to, source: 'renamed' });
     }
   }
   return cols;
@@ -97,6 +103,7 @@ function getDerivedColumns(precedingSteps) {
 const KIND_COLOR = {
   filter: '#fef3c7', combine: '#dbeafe', addColumn: '#ede9fe',
   summarize: '#fce7f3', sort: '#dcfce7', keepTopN: '#fee2e2', chooseColumns: '#e0f2fe',
+  rename: '#fae8ff',
 };
 
 export function StepCard({ step, index, total, sourceCollection, onChange, onDelete, onSaved, rowCount, defaultExpanded = false, precedingSteps = [] }) {
@@ -248,6 +255,8 @@ function StepBody({ step, sourceCollection, update, precedingSteps }) {
       );
     case 'chooseColumns':
       return <ChooseColumnsEditor step={step} sourceCollection={sourceCollection} update={update} precedingSteps={precedingSteps} />;
+    case 'rename':
+      return <RenameEditor step={step} sourceCollection={sourceCollection} update={update} precedingSteps={precedingSteps} />;
     default:
       return null;
   }
@@ -971,6 +980,67 @@ function SortEditor({ step, sourceCollection, update, precedingSteps }) {
   );
 }
 
+// Rename one or more columns. The "from" picker lists source-schema columns
+// plus any columns produced by preceding steps (joins, computed, summarized).
+function RenameEditor({ step, sourceCollection, update, precedingSteps }) {
+  const extraFields = getDerivedColumns(precedingSteps);
+  const renames = React.useMemo(() => {
+    if (Array.isArray(step.renames) && step.renames.length) return step.renames;
+    if (step.from) return [{ from: step.from, to: step.to || '' }];
+    return [{ from: '', to: '' }];
+  }, [step]);
+
+  // Migrate the legacy single-rename shape into the array shape on first edit.
+  const setRenames = (next) => update({ renames: next, from: undefined, to: undefined });
+  const updateRow = (i, patch) => setRenames(renames.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const removeRow = (i) => setRenames(renames.filter((_, idx) => idx !== i));
+  const addRow = () => setRenames([...renames, { from: '', to: '' }]);
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+      {renames.map((row, i) => (
+        <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+          <FieldPicker
+            collection={sourceCollection}
+            value={row.from || ''}
+            onChange={(from) => updateRow(i, { from })}
+            label="Column"
+            extraFields={extraFields}
+          />
+          <Typography sx={{ color: 'text.disabled', fontWeight: 700, px: 0.25 }}>→</Typography>
+          <TextField
+            size="small" label="New name"
+            value={row.to || ''}
+            onChange={(e) => updateRow(i, { to: e.target.value })}
+            sx={{ width: 200, '& .MuiOutlinedInput-root': { borderRadius: '16px' } }}
+          />
+          <Tooltip title="Remove rename">
+            <span>
+              <IconButton
+                size="small"
+                onClick={() => removeRow(i)}
+                disabled={renames.length <= 1}
+                sx={{ color: 'text.disabled', '&:hover': { color: 'text.secondary' } }}
+              >
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Box>
+      ))}
+      <Button size="small" startIcon={<AddIcon />} onClick={addRow}
+        sx={{
+          alignSelf: 'flex-start', borderRadius: 2, fontWeight: 600, textTransform: 'none',
+          color: '#475569', border: '1px solid #e2e8f0', bgcolor: '#f8fafc',
+          '&:hover': { bgcolor: '#f1f5f9', borderColor: '#cbd5e1' },
+        }}
+      >
+        Add another rename
+      </Button>
+    </Box>
+  );
+}
+
 export function StepArrow() {
   return (
     <Box sx={{ display: 'flex', justifyContent: 'center', my: -0.5 }}>
@@ -1025,6 +1095,12 @@ export function AddStepButton({ onAdd, existingKinds = [] }) {
       desc: 'Keep only the first N rows of the result',
       icon: <Filter1Icon fontSize="small" />, color: '#ef4444',
       defaults: { limit: 100 },
+    },
+    {
+      kind: 'rename', label: 'Rename column',
+      desc: 'Give one or more columns a new name',
+      icon: <DriveFileRenameOutlineIcon fontSize="small" />, color: '#c026d3',
+      defaults: { renames: [{ from: '', to: '' }] },
     },
   ];
 

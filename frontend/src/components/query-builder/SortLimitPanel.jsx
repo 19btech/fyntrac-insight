@@ -15,7 +15,7 @@ const DIR_OPTIONS = [
 ];
 
 export default function SortLimitPanel({
-  collection, sorts = [], limit, onSortsChange, onLimitChange,
+  collection, datasetId, sorts = [], limit, onSortsChange, onLimitChange,
 }) {
   const update = (i, patch) => {
     onSortsChange(sorts.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
@@ -51,6 +51,7 @@ export default function SortLimitPanel({
             </Typography>
             <FieldPicker
               collection={collection}
+              datasetId={datasetId}
               value={s.field}
               onChange={(v) => update(i, { field: v })}
               label="Field"

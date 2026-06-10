@@ -26,11 +26,17 @@ function cacheKey(collection, field, search) {
  * responsible for resolving datasets/questions — that's done upstream by the
  * parent who already knows the source collection.
  */
-export default function FilterValueInput({ collection, field, operator, value, onChange, extraFields = [], sourceKind, sourceName, sourceId }) {
+export default function FilterValueInput({ collection, datasetId, field, operator, value, onChange, extraFields = [], sourceKind, sourceName, sourceId }) {
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const debounceRef = useRef(null);
+
+  // A dataset-backed report builder resolves distinct values through the
+  // source-aware endpoint (handles Prism SQL columns + build-step transforms),
+  // not the raw collection. Map `datasetId` onto the existing source path.
+  const effSourceKind = sourceKind || (datasetId ? 'dataset' : undefined);
+  const effSourceId = sourceId || datasetId || undefined;
 
   // If the selected field is a joined column (produced by a combine step), we
   // must query the *source* collection using the *original* field name — not
@@ -72,16 +78,16 @@ export default function FilterValueInput({ collection, field, operator, value, o
     // Source-aware path (e.g. KPI modal): dataset / report / collection sources
     // resolve distinct values through /schema/source/values, which runs the
     // source's pipeline first. Use whenever a sourceKind is supplied.
-    if (sourceKind) {
-      const params = { kind: sourceKind, field: resolvedField, search, limit: 20 };
-      if (sourceKind === 'collection') {
+    if (effSourceKind) {
+      const params = { kind: effSourceKind, field: resolvedField, search, limit: 20 };
+      if (effSourceKind === 'collection') {
         if (!sourceName) { setOptions([]); return; }
         params.name = sourceName;
       } else {
-        if (!sourceId) { setOptions([]); return; }
-        params.id = sourceId;
+        if (!effSourceId) { setOptions([]); return; }
+        params.id = effSourceId;
       }
-      const key = cacheKey(`${sourceKind}:${sourceId || sourceName || ''}`, resolvedField, search);
+      const key = cacheKey(`${effSourceKind}:${effSourceId || sourceName || ''}`, resolvedField, search);
       if (_valCache[key]) { setOptions(_valCache[key]); return; }
       setLoading(true);
       api.get('/schema/source/values', { params })
@@ -110,7 +116,7 @@ export default function FilterValueInput({ collection, field, operator, value, o
       })
       .catch(() => setOptions([]))
       .finally(() => setLoading(false));
-  }, [sourceKind, sourceName, sourceId, resolvedCollection, resolvedField]); // eslint-disable-line
+  }, [effSourceKind, sourceName, effSourceId, resolvedCollection, resolvedField]); // eslint-disable-line
 
   // Initial load + load when collection/field changes.
   useEffect(() => {

@@ -765,6 +765,35 @@ async function countSecured(collectionName, matchStage, user) {
 }
 
 /**
+ * Infer field types from already-materialised flat result rows (e.g. the output
+ * of a DuckDB/Prism SQL query). Mirrors `inferSchemaFromPipeline`'s output shape
+ * so callers get the same `{ name, type, semanticType?, format? }` fields they'd
+ * get from a Mongo pipeline. `columns` ensures every result column is listed even
+ * when it is null across the entire sample.
+ */
+function inferSchemaFromRows(rows, columns = [], collectionName = '') {
+  const fieldMap = {};
+  const formatMap = {};
+  for (const doc of rows || []) {
+    if (doc && typeof doc === 'object') flattenDoc(doc, '', fieldMap, formatMap);
+  }
+  // Seed any columns that were entirely null in the sample so they still appear.
+  for (const c of columns || []) {
+    if (c && !c.startsWith('_') && c !== 'tenantId' && !fieldMap[c]) {
+      fieldMap[c] = new Set(['string']);
+    }
+  }
+  return Object.entries(fieldMap)
+    .map(([name, types]) => {
+      const out = { name, type: resolveType(types) };
+      if (formatMap[name] && out.type === 'date') out.format = formatMap[name];
+      return decorateField(out);
+    })
+    .filter((f) => f.type !== 'object' && f.type !== 'array' && f.type !== 'binary')
+    .filter((f) => !isHiddenFieldName(f.name, collectionName));
+}
+
+/**
  * Strip system / hidden fields from an already-normalized row using the same
  * rules executePipeline applies, so streamed SQL data matches what the rest
  * of the app sees (no tenantId, _class, internal upload pointers, etc.).
@@ -790,6 +819,7 @@ module.exports = {
   getFieldNameMap,
   inferSchema,
   inferSchemaFromPipeline,
+  inferSchemaFromRows,
   connectTarget,
   getTargetDb,
   resolveCollection,

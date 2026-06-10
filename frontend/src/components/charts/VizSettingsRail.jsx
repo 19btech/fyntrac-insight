@@ -121,11 +121,9 @@ export default function VizSettingsRail({ config = {}, onChange, data = [], colu
   const isCartesian = CARTESIAN.includes(chartType);
   const canStack = STACKABLE.includes(chartType);
   const canSmooth = SMOOTHABLE.includes(chartType);
-  const canDual = ['bar', 'line', 'area', 'combo'].includes(chartType) && yFields.length >= 2;
   const hasLegend = ['bar', 'line', 'area', 'combo', 'scatter', 'pie'].includes(chartType);
   const hasPalette = hasLegend;
-  const canDataLabels = ['bar', 'combo', 'pie', 'line', 'area'].includes(chartType);
-  const hasAnyDisplay = hasLegend || hasPalette || canStack || canDual || canSmooth || canDataLabels || isCartesian;
+  const hasAnyDisplay = hasLegend || hasPalette || canStack || canSmooth || isCartesian;
 
   // The Data + Display tabs only apply to field-mapped charts. For table /
   // pivot / metric / variance / funnel / waterfall they're disabled (Format
@@ -290,24 +288,10 @@ export default function VizSettingsRail({ config = {}, onChange, data = [], colu
               </Box>
             )}
 
-            {canDual && (
-              <FormControlLabel
-                control={<Switch size="small" checked={!!config.dualAxis} onChange={(e) => set({ dualAxis: e.target.checked })} />}
-                label={<Typography sx={{ fontSize: '0.8rem' }}>Dual Y axis (2nd measure on right)</Typography>}
-              />
-            )}
-
             {canSmooth && (
               <FormControlLabel
                 control={<Switch size="small" checked={!!config.smooth} onChange={(e) => set({ smooth: e.target.checked })} />}
                 label={<Typography sx={{ fontSize: '0.8rem' }}>Smooth lines</Typography>}
-              />
-            )}
-
-            {canDataLabels && (
-              <FormControlLabel
-                control={<Switch size="small" checked={!!config.dataLabels} onChange={(e) => set({ dataLabels: e.target.checked })} />}
-                label={<Typography sx={{ fontSize: '0.8rem' }}>Show data labels</Typography>}
               />
             )}
 

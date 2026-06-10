@@ -31,7 +31,7 @@ const KIND_ICON = {
   numeric: <NumbersIcon fontSize="small" />,
 };
 
-function FilterRow({ filter, collection, extraFields, onChange, onDelete }) {
+function FilterRow({ filter, collection, datasetId, extraFields, onChange, onDelete }) {
   if (filter.savedFilterRef) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -50,7 +50,7 @@ function FilterRow({ filter, collection, extraFields, onChange, onDelete }) {
   }
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5, flexWrap: 'wrap' }}>
-      <FieldPicker collection={collection} value={filter.field} onChange={(v) => onChange({ ...filter, field: v })} extraFields={extraFields} />
+      <FieldPicker collection={collection} datasetId={datasetId} value={filter.field} onChange={(v) => onChange({ ...filter, field: v })} extraFields={extraFields} />
       <TextField
         select size="small" label="Operator"
         value={filter.operator || '$eq'}
@@ -64,6 +64,7 @@ function FilterRow({ filter, collection, extraFields, onChange, onDelete }) {
       {filter.operator !== '$exists' && (
         <FilterValueInput
           collection={collection}
+          datasetId={datasetId}
           field={filter.field}
           operator={filter.operator}
           value={filter.value}
@@ -76,7 +77,7 @@ function FilterRow({ filter, collection, extraFields, onChange, onDelete }) {
   );
 }
 
-export default function FilterBuilder({ collection, filters, onChange, extraFields = [] }) {
+export default function FilterBuilder({ collection, datasetId, filters, onChange, extraFields = [] }) {
   const addFilter = () => {
     onChange([...filters, { id: Date.now(), field: '', operator: '$eq', value: '' }]);
   };
@@ -93,7 +94,7 @@ export default function FilterBuilder({ collection, filters, onChange, extraFiel
     <Box>
       <Typography variant="body2" fontWeight={700} mb={1} color="text.secondary">FILTERS</Typography>
       {filters.map((f, i) => (
-        <FilterRow key={f.id} filter={f} collection={collection} extraFields={extraFields}
+        <FilterRow key={f.id} filter={f} collection={collection} datasetId={datasetId} extraFields={extraFields}
           onChange={(u) => updateFilter(i, u)} onDelete={() => deleteFilter(i)} />
       ))}
       <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>

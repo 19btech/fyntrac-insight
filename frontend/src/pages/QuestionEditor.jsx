@@ -120,10 +120,16 @@ export default function QuestionEditor() {
         // separate useEffect that would fire one render cycle later.
         const freshCollection = q.queryConfig?.collection || '';
         const freshPipeline = q.queryConfig?.pipeline || [];
-        if (freshCollection && freshPipeline.length > 0) {
+        const freshModelId = q.queryConfig?.source?.datasetId || null;
+        // Dataset-backed reports run even with an empty pipeline (the dataset
+        // itself supplies the rows); collection-only reports need a pipeline.
+        if ((freshCollection || freshModelId) && (freshPipeline.length > 0 || freshModelId)) {
           setRunning(true);
           const attemptRun = (retries = 1) =>
-            api.post('/query/run', { collection: freshCollection, pipeline: freshPipeline })
+            api.post('/query/run', {
+              collection: freshCollection, pipeline: freshPipeline,
+              ...(freshModelId ? { sourceModelId: freshModelId } : {}),
+            })
               .then((res) => {
                 setResults(res.data);
                 setLastRunAt(new Date());
@@ -189,7 +195,12 @@ export default function QuestionEditor() {
       try { parsed = JSON.parse(pipeline); } catch {
         setError('Invalid JSON pipeline'); setRunning(false); return;
       }
-      const res = await api.post('/query/run', { collection, pipeline: parsed, variables });
+      const res = await api.post('/query/run', {
+        collection, pipeline: parsed, variables,
+        // When the report is built on a dataset, run against the dataset's
+        // output (SQL columns / build-step transforms), not the raw collection.
+        ...(source.datasetId ? { sourceModelId: source.datasetId } : {}),
+      });
       setResults(res.data);
       setLastRunAt(new Date());
       setRunMs(res.data?.executionTime || null);

@@ -12,6 +12,7 @@
  *   - sort          { kind, sorts: [{field, dir}] }  // legacy: { field, dir } accepted
  *   - keepTopN      { kind, limit }
  *   - chooseColumns { kind, columns: [], mode: 'keep'|'drop' }
+ *   - rename        { kind, renames: [{ from, to }] }   // legacy: { from, to }
  *
  * Every step also carries an optional `disabled: true` flag so users can
  * temporarily turn a step off without deleting it.
@@ -382,6 +383,25 @@ function compileStep(step) {
       const include = step.mode !== 'drop';
       for (const c of step.columns) proj[c] = include ? 1 : 0;
       return [{ $project: proj }];
+    }
+    case 'rename': {
+      // Rename columns: copy each `from` to its new `to` name, then drop the
+      // old names. Accepts the multi-rename shape { renames: [{from,to}] } and
+      // falls back to a single legacy { from, to } on the step root.
+      const list = Array.isArray(step.renames) && step.renames.length
+        ? step.renames
+        : (step.from ? [{ from: step.from, to: step.to }] : []);
+      const cleaned = list.filter((r) => r && r.from && r.to && r.from !== r.to);
+      if (!cleaned.length) return [];
+      const addFields = {};
+      for (const r of cleaned) addFields[r.to] = `$${r.from}`;
+      // Don't drop a source field that is itself the target of another rename.
+      const targets = new Set(cleaned.map((r) => r.to));
+      const proj = {};
+      for (const r of cleaned) if (!targets.has(r.from)) proj[r.from] = 0;
+      const stages = [{ $addFields: addFields }];
+      if (Object.keys(proj).length) stages.push({ $project: proj });
+      return stages;
     }
     default:
       return [];

@@ -267,6 +267,21 @@ function compileStep(s) {
       for (const c of s.columns) proj[c] = inc ? 1 : 0;
       return [{ $project: proj }];
     }
+    case 'rename': {
+      const list = Array.isArray(s.renames) && s.renames.length
+        ? s.renames
+        : (s.from ? [{ from: s.from, to: s.to }] : []);
+      const cleaned = list.filter((r) => r && r.from && r.to && r.from !== r.to);
+      if (!cleaned.length) return [];
+      const addFields = {};
+      for (const r of cleaned) addFields[r.to] = `$${r.from}`;
+      const targets = new Set(cleaned.map((r) => r.to));
+      const proj = {};
+      for (const r of cleaned) if (!targets.has(r.from)) proj[r.from] = 0;
+      const out = [{ $addFields: addFields }];
+      if (Object.keys(proj).length) out.push({ $project: proj });
+      return out;
+    }
     default: return [];
   }
 }
@@ -322,6 +337,14 @@ export function describeStep(s) {
     }
     case 'keepTopN': return `Keeps the top ${s.limit || 100} rows`;
     case 'chooseColumns': return `${s.mode === 'drop' ? 'Removes' : 'Keeps only'} ${(s.columns || []).length} column(s)`;
+    case 'rename': {
+      const list = Array.isArray(s.renames) && s.renames.length
+        ? s.renames : (s.from ? [{ from: s.from, to: s.to }] : []);
+      const valid = list.filter((r) => r && r.from && r.to);
+      if (!valid.length) return 'Renames a column';
+      if (valid.length === 1) return `Renames ${valid[0].from} → ${valid[0].to}`;
+      return `Renames ${valid.length} columns`;
+    }
     default: return '';
   }
 }
@@ -334,4 +357,5 @@ export const STEP_LABELS = {
   sort: 'Sort',
   keepTopN: 'Limit rows',
   chooseColumns: 'Choose columns',
+  rename: 'Rename column',
 };

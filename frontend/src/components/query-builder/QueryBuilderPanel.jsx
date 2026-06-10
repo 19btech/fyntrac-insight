@@ -243,7 +243,7 @@ export default function QueryBuilderPanel({
             summary={filterSummary}
             defaultOpen={collapseAll ? false : filters.length === 0}
           >
-            <FilterBuilder collection={collection} filters={filters} onChange={setFilters} />
+            <FilterBuilder collection={collection} datasetId={datasetId} filters={filters} onChange={setFilters} />
           </BuilderStepCard>
 
           <BuilderStepCard
@@ -254,6 +254,7 @@ export default function QueryBuilderPanel({
           >
             <SummarizePanel
               collection={collection}
+              datasetId={datasetId}
               groupBys={groupBys}
               metrics={metrics}
               onGroupBysChange={setGroupBys}
@@ -269,6 +270,7 @@ export default function QueryBuilderPanel({
           >
             <SortLimitPanel
               collection={collection}
+              datasetId={datasetId}
               sorts={sorts}
               limit={limit}
               onSortsChange={setSorts}

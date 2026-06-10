@@ -16,6 +16,7 @@ const AGGREGATIONS = [
 
 export default function SummarizePanel({
   collection,
+  datasetId,
   groupBys = [],
   metrics = [],
   onGroupBysChange,
@@ -61,6 +62,7 @@ export default function SummarizePanel({
             </Typography>
             <FieldPicker
               collection={collection}
+              datasetId={datasetId}
               value={g}
               onChange={(v) => updateGroup(i, v)}
               label="Group by field"
@@ -96,7 +98,7 @@ export default function SummarizePanel({
               ))}
             </TextField>
             {m.agg !== '$count' && (
-              <FieldPicker collection={collection} value={m.field} onChange={(v) => updateMetric(i, { field: v })} label="Field" extraFields={extraFields} />
+              <FieldPicker collection={collection} datasetId={datasetId} value={m.field} onChange={(v) => updateMetric(i, { field: v })} label="Field" extraFields={extraFields} />
             )}
             <TextField
               size="small"

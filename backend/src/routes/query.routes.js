@@ -1,16 +1,48 @@
 const router = require('express').Router();
+require('mingo/init/system');
+const mingo = require('mingo');
 const mongoService = require('../services/mongo.service');
 const cacheService = require('../services/cache.service');
-const AuditLog = require('../models/AuditLog.model');
-const SavedModel = require('../models/SavedModel.model');
-require('../models/SavedQuery.model');
-require('../models/SqlExport.model');
 const duckdbService = require('../services/duckdb.service');
 const schemaService = require('../services/schema.service');
 const sqlExportService = require('../services/sql-export.service');
 const aiService = require('../services/ai.service');
 const { parseAndValidate } = require('../services/sql-pushdown.service');
+require('../models/SavedQuery.model');
+require('../models/SqlExport.model');
+
 const MAX_ROWS = parseInt(process.env.MAX_QUERY_ROWS || '50000', 10);
+const SQL_DATASET_MAX = parseInt(process.env.SQL_DATASET_MAX_ROWS || '100000', 10);
+
+/** Run mingo aggregator in-memory. */
+function mingoAggregate(rows, pipeline) {
+  const agg = new mingo.Aggregator(pipeline);
+  return agg.run(rows);
+}
+
+/** Strip system fields from a row document. */
+function stripSystemKeys(row) {
+  if (!row) return row;
+  const out = {};
+  for (const [k, v] of Object.entries(row)) {
+    if (!k.startsWith('_')) out[k] = v;
+  }
+  return out;
+}
+
+/** Derive an ordered column list from result rows (union of keys, first-seen). */
+function columnsFromRows(rows, fallback = []) {
+  if (!rows || !rows.length) return fallback;
+  const seen = [];
+  const set = new Set();
+  for (const row of rows) {
+    for (const k of Object.keys(row || {})) {
+      if (k.startsWith('_')) continue;
+      if (!set.has(k)) { set.add(k); seen.push(k); }
+    }
+  }
+  return seen.length ? seen : fallback;
+}
 
 /**
  * Substitute {{variable_name}} template placeholders in a pipeline JSON string.
@@ -35,20 +67,67 @@ router.post('/run', async (req, res) => {
   let effectiveCollection = collection;
   let effectivePipeline = pipeline;
 
-  // v60: question built on top of a saved model — prepend the model's pipeline
+  // v60: question built on top of a saved model (Dataset).
+  //  - steps datasets: prepend the model's compiled Mongo pipeline.
+  //  - SQL (Prism) datasets: the columns are defined by DuckDB, so run the
+  //    dataset SQL and apply the report's own pipeline over its output in-memory.
   if (sourceModelId) {
+    let model;
     try {
-      const model = await req.model('SavedModel').findOne({
+      model = await req.model('SavedModel').findOne({
         _id: sourceModelId,
         tenantId: req.user.tenantId,
         archived: { $ne: true },
       });
-      if (!model) return res.status(404).json({ error: 'Source model not found' });
-      effectiveCollection = model.sourceCollection;
-      effectivePipeline = [...(model.pipeline || []), ...(Array.isArray(pipeline) ? pipeline : [])];
     } catch (err) {
       return res.status(400).json({ error: 'Invalid sourceModelId' });
     }
+    if (!model) return res.status(404).json({ error: 'Source model not found' });
+
+    if (model.sourceMode === 'savedQuery' && model.savedQuerySql) {
+      try {
+        const reportPipeline = Array.isArray(pipeline)
+          ? substituteVariables(pipeline, variables)
+          : [];
+        const cacheKey = cacheService.buildCacheKey(
+          req.user.tenantId, `dataset:${model._id}`, reportPipeline, variables,
+        );
+        const cached = await cacheService.get(cacheKey);
+        if (cached) { res.set('X-Cache', 'HIT'); return res.json({ ...cached, cachedAt: cached.cachedAt }); }
+
+        const started = Date.now();
+        const base = await duckdbService.runQuery({
+          sql: model.savedQuerySql, user: req.user, page: 0, pageSize: SQL_DATASET_MAX,
+        });
+        const baseRows = base.rows || [];
+        // Apply the report's transformations over the dataset's SQL output.
+        let out = reportPipeline.length ? mingoAggregate(baseRows, reportPipeline) : baseRows;
+        const hasLimit = reportPipeline.some((s) => s && s.$limit !== undefined);
+        const truncated = (!hasLimit && out.length >= MAX_ROWS) || baseRows.length >= SQL_DATASET_MAX;
+        if (!hasLimit && out.length > MAX_ROWS) out = out.slice(0, MAX_ROWS);
+        const cleanData = out.map(stripSystemKeys);
+        const payload = {
+          data: cleanData,
+          columns: columnsFromRows(cleanData, base.columns || []),
+          truncated,
+          executionTime: Date.now() - started,
+          cachedAt: new Date().toISOString(),
+        };
+        await cacheService.set(cacheKey, payload, cacheTTL && Number(cacheTTL) > 0 ? Number(cacheTTL) : undefined);
+        res.set('X-Cache', 'MISS');
+        req.model('AuditLog').create({
+          tenantId: req.user.tenantId, userId: req.user.userId, action: 'query.run',
+          resourceType: 'dataset', resourceId: String(model._id), executionTimeMs: payload.executionTime,
+        }).catch(() => {});
+        return res.json(payload);
+      } catch (err) {
+        return res.status(400).json({ error: err.message });
+      }
+    }
+
+    // Steps dataset — prepend the compiled Mongo pipeline (Mongo-on-Mongo).
+    effectiveCollection = model.sourceCollection;
+    effectivePipeline = [...(model.pipeline || []), ...(Array.isArray(pipeline) ? pipeline : [])];
   }
 
   if (!effectiveCollection || typeof effectiveCollection !== 'string') {
@@ -97,9 +176,14 @@ router.post('/run', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// SQL Lab — read-only SQL over MongoDB via DuckDB
+// ─────────────────────────────────────────────────────────────────────────
+
 /**
  * GET /api/query/collections
- * List tables and fields available for SQL queries (same domain logic /
+ * All queryable collections plus their fields, for the SQL Lab sidebar and
+ * editor autocomplete. Reuses the existing schema service (same tenant
  * security + exclusion rules as every other picker).
  */
 router.get('/collections', async (req, res) => {

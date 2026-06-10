@@ -56,6 +56,23 @@ export default function DashboardCard({ card, editMode, onDelete, refreshKey }) 
     onDelete(card.i);
   };
 
+  // Shared across every card-type branch below. Each branch has its own early
+  // return, so this must be rendered in all of them — otherwise "Remove card"
+  // toggles state with no dialog mounted to show (the KPI/metric bug).
+  const removeDialog = (
+    <Dialog open={removeConfirmOpen} onClose={() => setRemoveConfirmOpen(false)} maxWidth="xs" fullWidth>
+      <BrandedDialogTitle label="Dashboard" title="Remove Card" onClose={() => setRemoveConfirmOpen(false)} />
+      <DialogContent>
+        <DialogContentText>
+          This will remove the card from the dashboard. The underlying report is not affected.
+        </DialogContentText>
+      </DialogContent>
+      <DialogActions>
+        <Button variant="contained" onClick={confirmRemove}>Remove</Button>
+      </DialogActions>
+    </Dialog>
+  );
+
   // B7: use destructured useEffect (not React.useEffect).
   // P4: cancelled flag prevents state updates after unmount / effect re-run.
   useEffect(() => {
@@ -151,6 +168,7 @@ export default function DashboardCard({ card, editMode, onDelete, refreshKey }) 
             </MenuItem>
           )}
         </Menu>
+        {removeDialog}
       </Box>
     );
   }
@@ -176,6 +194,7 @@ export default function DashboardCard({ card, editMode, onDelete, refreshKey }) 
         <CardContent sx={{ height: '100%', p: 0, '&:last-child': { pb: 0 } }}>
           <TextCard text={card.text} variant={card.type} linkUrl={card.linkUrl} />
         </CardContent>
+        {removeDialog}
       </Card>
     );
   }
@@ -296,17 +315,7 @@ Ask me anything about this card:
         cardRef={cardRef}
       />
 
-      <Dialog open={removeConfirmOpen} onClose={() => setRemoveConfirmOpen(false)} maxWidth="xs" fullWidth>
-        <BrandedDialogTitle label="Dashboard" title="Remove Card" onClose={() => setRemoveConfirmOpen(false)} />
-        <DialogContent>
-          <DialogContentText>
-            This will remove the card from the dashboard. The underlying report is not affected.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button variant="contained" onClick={confirmRemove}>Remove</Button>
-        </DialogActions>
-      </Dialog>
+      {removeDialog}
     </Card>
   );
 }

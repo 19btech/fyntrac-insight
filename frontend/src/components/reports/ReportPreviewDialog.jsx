@@ -178,7 +178,7 @@ export default function ReportPreviewDialog({ open, reportId, isNew = false, onC
           name: nm, description: desc, chartConfig: cc,
           collection: col, pipelineJson: pj, builderState: bs,
         });
-        runQueryWith(col, data.queryConfig?.pipeline || []);
+        runQueryWith(col, data.queryConfig?.pipeline || [], false, data.queryConfig?.source?.datasetId || null);
       })
       .catch((e) => setError(e.response?.data?.error || e.message));
   }, [open, reportId, isNew]);
@@ -193,11 +193,19 @@ export default function ReportPreviewDialog({ open, reportId, isNew = false, onC
     setDirty(current !== baselineRef.current);
   }, [name, description, chartConfig, collection, pipelineJson, builderState]);
 
-  const runQueryWith = async (col, pipeline, showToast = false) => {
-    if (!col) return;
+  // `modelId` defaults to the current dataset source, but callers that run a
+  // freshly-loaded/restored report (whose `source` state isn't committed yet)
+  // pass it explicitly. When present, the backend runs against the dataset's
+  // output (Prism SQL columns / build-step transforms), not the raw collection.
+  const runQueryWith = async (col, pipeline, showToast = false, modelId = source?.datasetId) => {
+    if (!col && !modelId) return;
     setRunning(true); setError('');
     try {
-      const { data } = await api.post('/query/run', { collection: col, pipeline: pipeline || [] });
+      const { data } = await api.post('/query/run', {
+        collection: col,
+        pipeline: pipeline || [],
+        ...(modelId ? { sourceModelId: modelId } : {}),
+      });
       setResults(data);
       if (showToast) {
         setQueryDoneMsg(`Query complete · ${data.data?.length ?? 0} rows returned`);
@@ -643,7 +651,7 @@ Give me the key insights from these numbers — totals, averages, the highest an
                                 setCollection(data.queryConfig?.collection || '');
                                 setPipelineJson(JSON.stringify(data.queryConfig?.pipeline || [], null, 2));
                                 setBuilderState(data.queryConfig?.builderState || null);
-                                runQueryWith(data.queryConfig?.collection, data.queryConfig?.pipeline || []);
+                                runQueryWith(data.queryConfig?.collection, data.queryConfig?.pipeline || [], false, data.queryConfig?.source?.datasetId || null);
                                 setDirty(false);
                                 setTab('preview');
                                 setRestoredMsg(`Restored to version from ${v.snapshottedAt ? new Date(v.snapshottedAt).toLocaleString() : 'previous version'}`);

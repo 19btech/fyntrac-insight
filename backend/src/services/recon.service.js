@@ -13,6 +13,7 @@
 const SavedModel = require('../models/SavedModel.model');
 const ReconCsvFile = require('../models/ReconCsvFile.model');
 const mongoService = require('./mongo.service');
+const duckdbService = require('./duckdb.service');
 
 /**
  * Safety limit: throw before loading sides larger than this into memory.
@@ -146,16 +147,32 @@ function applyTransform(value, transform, opts = {}) {
 
 // ─── Source materialization ────────────────────────────────────────────────
 
+/**
+ * Materialize a Dataset's transformed output as { name, columns, rows }.
+ *  - SQL (Prism) datasets define their columns in DuckDB, so run the saved
+ *    query (the underlying collection alone has neither the columns nor the
+ *    structure the user built).
+ *  - Steps datasets carry a compiled Mongo pipeline we run over the source.
+ * `limit > 0` caps rows for sampled previews; 0 means "all" (bounded by the
+ * MAX_DATASET_ROWS guard enforced downstream).
+ */
+async function materializeDataset(ds, user, limit = 0) {
+  if (ds.sourceMode === 'savedQuery' && ds.savedQuerySql) {
+    const pageSize = limit > 0 ? limit : MAX_DATASET_ROWS;
+    const res = await duckdbService.runQuery({ sql: ds.savedQuerySql, user, page: 0, pageSize });
+    return { name: ds.name, columns: res.columns || [], rows: res.rows || [] };
+  }
+  const pipeline = limit > 0 ? [...(ds.pipeline || []), { $limit: limit }] : (ds.pipeline || []);
+  const result = await mongoService.executePipeline(ds.sourceCollection, pipeline, user);
+  return { name: ds.name, columns: result.columns || [], rows: result.data || [] };
+}
+
 async function materializeSide(side, user, limit = 0) {
   if (!side || !side.kind || !side.refId) throw new Error('Invalid source side');
   if (side.kind === 'dataset') {
     const ds = await user.getModel('SavedModel').findOne({ _id: side.refId, tenantId: user.tenantId });
     if (!ds) throw new Error(`Dataset not found: ${side.refId}`);
-    // Push a $limit into the pipeline for sampled previews so we never run the
-    // full aggregation just to estimate a match rate.
-    const pipeline = limit > 0 ? [...(ds.pipeline || []), { $limit: limit }] : (ds.pipeline || []);
-    const result = await mongoService.executePipeline(ds.sourceCollection, pipeline, user);
-    return { name: ds.name, columns: result.columns || [], rows: result.data || [] };
+    return materializeDataset(ds, user, limit);
   }
   if (side.kind === 'csv') {
     const f = await user.getModel('ReconCsvFile').findOne({ _id: side.refId, tenantId: user.tenantId });
@@ -602,9 +619,7 @@ async function materializeColumnsOnly(side, user) {
   if (side.kind === 'dataset') {
     const ds = await user.getModel('SavedModel').findOne({ _id: side.refId, tenantId: user.tenantId });
     if (!ds) throw new Error(`Dataset not found: ${side.refId}`);
-    const pipeline = [...(ds.pipeline || []), { $limit: 200 }];
-    const result = await mongoService.executePipeline(ds.sourceCollection, pipeline, user);
-    return { name: ds.name, columns: result.columns || [], rows: result.data || [] };
+    return materializeDataset(ds, user, 200);
   }
   // For CSV, parsedRows already stored or raw is parsed; full materialize is acceptable
   return materializeSide(side, user);

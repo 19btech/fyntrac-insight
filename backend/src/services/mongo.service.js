@@ -1,11 +1,23 @@
 const mongoose = require('mongoose');
 const { MongoClient } = require('mongodb');
+const { resolveTenantName } = require('./tenant-name.service');
 
 // ── Target (financial data) DB — per-tenant connection cache ──────────────────
-// DB name pattern: <TENANT_UPPER>
+// DB name pattern: <TENANT>, using the tenant name verbatim
+// (MongoDB database names are case-sensitive).
 
 /** @type {Map<string, { client: MongoClient, db: import('mongodb').Db, promise: Promise }>} */
 const _targetConns = new Map();
+
+/**
+ * Database name to open for a request's user.
+ * `tenantDb` carries the verbatim tenant name (set by tenantDbMiddleware);
+ * `tenantId` is the normalised logical id and is only a fallback for callers
+ * that never passed through the middleware (public share / embed routes).
+ */
+function tenantDbKey(user) {
+  return (user && (user.tenantDb || user.tenantId)) || 'master';
+}
 
 /**
  * Get (or lazily create) the native MongoClient connection for a tenant's
@@ -15,7 +27,8 @@ const _targetConns = new Map();
  * @returns {Promise<import('mongodb').Db>}
  */
 async function getTargetDb(tenant) {
-  const key = (tenant || 'MASTER').toUpperCase();
+  // Verbatim tenant name — MongoDB database names are case-sensitive.
+  const key = resolveTenantName(tenant);
   if (_targetConns.has(key)) {
     const entry = _targetConns.get(key);
     if (entry.db) return entry.db;
@@ -153,7 +166,7 @@ async function getAttributeTypes(user) {
   if (cached && now - cached.ts < ATTRIBUTE_TYPES_TTL_MS) return cached.map;
   const map = {};
   try {
-    const db = await getTargetDb(tenantKey);
+    const db = await getTargetDb(tenantDbKey(user));
     const securityStage = buildSecurityFilter(user || { tenantId: tenantKey });
     const docs = await db
       .collection('Attributes')
@@ -185,7 +198,7 @@ async function getCustomTableTypes(user) {
   if (cached && now - cached.ts < CUSTOM_TABLE_TYPES_TTL_MS) return cached.byTable;
   const byTable = {};
   try {
-    const db = await getTargetDb(tenantKey);
+    const db = await getTargetDb(tenantDbKey(user));
     const securityStage = buildSecurityFilter(user || { tenantId: tenantKey });
     const defs = await db
       .collection('CustomTableDefinitions')
@@ -333,7 +346,7 @@ function validatePipeline(pipeline, tenantId) {
  * Automatically prepends tenant $match as the FIRST stage.
  */
 async function executePipeline(collectionName, rawPipeline, user) {
-  const db = await getTargetDb(user.tenantId);
+  const db = await getTargetDb(tenantDbKey(user));
   validatePipeline(rawPipeline, user.tenantId);
 
   const securityStage = buildSecurityFilter(user);
@@ -457,7 +470,7 @@ function isNumericWrapperField(fullKey) {
  * KPIs, AI grounding). Hides system + picker-only collections (e.g. EventHistory).
  */
 async function getCollections(user) {
-  const db = await getTargetDb((user && user.tenantId) || 'master');
+  const db = await getTargetDb(tenantDbKey(user));
   const cols = await db.listCollections().toArray();
   return cols.map((c) => c.name).filter((n) => !isExcludedCollection(n)).sort((a, b) => a.localeCompare(b));
 }
@@ -467,7 +480,7 @@ async function getCollections(user) {
  * picker-only ones like EventHistory remain queryable here.
  */
 async function getSqlCollections(user) {
-  const db = await getTargetDb((user && user.tenantId) || 'master');
+  const db = await getTargetDb(tenantDbKey(user));
   const cols = await db.listCollections().toArray();
   return cols.map((c) => c.name).filter((n) => !isSystemExcludedCollection(n)).sort((a, b) => a.localeCompare(b));
 }
@@ -476,7 +489,7 @@ async function getSqlCollections(user) {
  * Sample up to 100 documents from a collection and infer field types.
  */
 async function inferSchema(collectionName, user) {
-  const db = await getTargetDb(user.tenantId);
+  const db = await getTargetDb(tenantDbKey(user));
   const securityStage = buildSecurityFilter(user);
   const attributeTypes = await getAttributeTypes(user);
   const customByTable = await getCustomTableTypes(user);
@@ -733,7 +746,7 @@ async function resolveCollection(name, user) {
  * even when feeding millions of rows into DuckDB.
  */
 async function getSecuredCursor(collectionName, extraStages, user) {
-  const db = await getTargetDb(user.tenantId);
+  const db = await getTargetDb(tenantDbKey(user));
   const securityStage = buildSecurityFilter(user);
   const attributeTypes = await getAttributeTypes(user);
   const customByTable = await getCustomTableTypes(user);
@@ -752,7 +765,7 @@ async function getSecuredCursor(collectionName, extraStages, user) {
  * (b) warn when an unfiltered query would scan a very large collection.
  */
 async function countSecured(collectionName, matchStage, user) {
-  const db = await getTargetDb(user.tenantId);
+  const db = await getTargetDb(tenantDbKey(user));
   const securityStage = buildSecurityFilter(user);
   const pipeline = [securityStage];
   if (matchStage && Object.keys(matchStage.$match || {}).length) pipeline.push(matchStage);

@@ -4,8 +4,10 @@
  * Tenant-scoped Mongoose connection manager for fyntrac-insight.
  *
  * Mirrors the DSL Studio pattern:
- *   X-Tenant: master  →  database: FYNTRAC_INSIGHT_MASTER
- *   X-Tenant: acme    →  database: FYNTRAC_INSIGHT_ACME
+ *   X-Tenant: master         →  database: master_INSIGHT
+ *   X-Tenant: Hearst_SandBox →  database: Hearst_SandBox_INSIGHT
+ *
+ * The tenant name is used verbatim: MongoDB database names are case-sensitive.
  *
  * Each tenant gets a dedicated Mongoose connection (cached for the lifetime
  * of the process). The middleware attaches the correct connection to
@@ -18,6 +20,7 @@
  */
 
 const mongoose = require('mongoose');
+const { rememberTenantName, resolveTenantName, normalizeTenantId } = require('./tenant-name.service');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const DB_SUFFIX = '_INSIGHT';
@@ -31,12 +34,13 @@ const _connCache = new Map();
 
 /**
  * Return (or lazily create) a Mongoose connection for the given tenant.
- * The database name is `<TENANT_UPPER>_INSIGHT`.
+ * The database name is `<TENANT>_INSIGHT`, using the tenant name verbatim.
  * Caches the promise (not just the resolved value) to prevent concurrent
  * requests from creating duplicate connections.
  */
 async function getTenantConnection(tenant) {
-  const key = (tenant || 'MASTER').toUpperCase();
+  // Verbatim tenant name — MongoDB database names are case-sensitive.
+  const key = resolveTenantName(tenant);
   if (_connCache.has(key)) return _connCache.get(key);
 
   const dbName = `${key}${DB_SUFFIX}`;
@@ -129,15 +133,24 @@ async function tenantDbMiddleware(req, res, next) {
     (req.user && req.user.tenantId) ||
     'master';
 
+  // Remember the casing the gateway sent so share/embed requests — which only
+  // carry the normalised tenantId — can resolve the same database later.
+  rememberTenantName(tenant);
+
   try {
     req.tenantConn = await getTenantConnection(tenant);
-    req.tenantId = (tenant || 'master').toUpperCase();
+    // Logical tenant id stays normalised: it is the value stored in the
+    // `tenantId` field of existing metadata documents.
+    req.tenantId = normalizeTenantId(tenant);
+    // Database name to open for this tenant's financial data, verbatim.
+    req.tenantDb = resolveTenantName(tenant);
 
     // Propagate the resolved tenant into req.user.tenantId so that all
     // downstream mongo.service calls (getCollections, executePipeline,
     // getTargetDb, etc.) route to the correct tenant data database.
     if (req.user) {
       req.user.tenantId = req.tenantId;
+      req.user.tenantDb = req.tenantDb;
       // Attach getModel helper to user object so services (like AI service)
       // can access tenant-scoped Mongoose models
       req.user.getModel = (modelName) => getModel(req, modelName);

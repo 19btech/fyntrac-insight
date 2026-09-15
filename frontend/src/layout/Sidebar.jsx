@@ -16,6 +16,7 @@ import ChangeHistoryIcon from '@mui/icons-material/ChangeHistoryOutlined';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ManageSearchIcon from '@mui/icons-material/ManageSearchOutlined';
 
 const MAIN_NAV = [
   { label: 'Dashboards',      icon: <DashboardIcon fontSize="small" />,     path: '/dashboards' },
@@ -26,6 +27,7 @@ const MAIN_NAV = [
   // SQL Lab opens as a global modal (not a route) — dispatch the same kind of
   // event the Report / Dataset modals use.
   { label: 'Prism',           icon: <ChangeHistoryIcon fontSize="small" />, onClick: () => window.dispatchEvent(new CustomEvent('fyntrac:open:sqllab')) },
+  { label: 'Instrument Browser', icon: <ManageSearchIcon fontSize="small" />, path: '/instruments' },
 ];
 
 const BOTTOM_NAV = [

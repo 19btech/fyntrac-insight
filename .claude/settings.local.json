@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp /home/uabbas/Downloads/fynbase-feat-sql-lab_2/fynbase-feat-sql-lab/frontend/src/pages/InstrumentBrowser.jsx /home/uabbas/Workspace/fyntrac-insight/frontend/src/pages/InstrumentBrowser.jsx && echo \"copied\")"
+    ],
+    "additionalDirectories": [
+      "/home/uabbas/Downloads/fynbase-feat-sql-lab_2/fynbase-feat-sql-lab/frontend/src/pages"
+    ]
+  }
+}

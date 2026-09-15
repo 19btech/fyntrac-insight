@@ -8,6 +8,7 @@ const schemaService = require('../services/schema.service');
 const sqlExportService = require('../services/sql-export.service');
 const aiService = require('../services/ai.service');
 const { parseAndValidate } = require('../services/sql-pushdown.service');
+const lineageService = require('../services/lineage.service');
 require('../models/SavedQuery.model');
 require('../models/SqlExport.model');
 
@@ -389,7 +390,38 @@ router.put('/saved/:id', async (req, res) => {
     if (typeof name === 'string' && name.trim()) query.name = name.trim();
     if (typeof sql === 'string') query.sql = sql;
     await query.save();
-    res.json(query);
+
+    // Datasets snapshot this SQL, so saving here has to refresh them or they
+    // keep running the previous version. Everything below a dataset (reports,
+    // KPIs, recons, dashboards, Instrument Browser sources) resolves it at run
+    // time and so follows automatically — `propagated` reports that reach.
+    let propagated = null;
+    try {
+      propagated = await lineageService.propagateSavedQuery(query, req.user, req.model);
+    } catch (e) {
+      // The query itself is saved; a propagation failure must not undo that.
+      console.error('[query.saved] propagation failed:', e.message);
+    }
+
+    res.json({ ...query.toObject(), propagated });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/query/saved/:id/impact
+ * What an edit to this query would touch. Lets the editor warn before saving
+ * rather than after.
+ */
+router.get('/saved/:id/impact', async (req, res) => {
+  try {
+    const query = await req.model('SavedQuery').findOne({
+      _id: req.params.id,
+      tenantId: req.user.tenantId,
+    }).lean();
+    if (!query) return res.status(404).json({ error: 'Saved query not found' });
+    res.json(await lineageService.impactOfSavedQuery(query._id, req.user.tenantId, req.model));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

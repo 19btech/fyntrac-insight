@@ -24,6 +24,7 @@ const Recons = lazy(() => import('./pages/Recons'));
 const ReconEditor = lazy(() => import('./pages/ReconEditor'));
 const ReconRun = lazy(() => import('./pages/ReconRun'));
 const Settings = lazy(() => import('./pages/Settings'));
+const InstrumentBrowser = lazy(() => import('./pages/InstrumentBrowser'));
 
 function RouteFallback() {
   return (
@@ -87,6 +88,7 @@ export default function App() {
           <Route path="/recon/:id" element={<ReconEditor />} />
           <Route path="/recon/:id/run/:runId" element={<ReconRun />} />
           <Route path="/bookmarks" element={<Bookmarks />} />
+          <Route path="/instruments" element={<InstrumentBrowser />} />
           <Route path="/admin" element={<AdminPage />} />
         </Route>
       </Routes>

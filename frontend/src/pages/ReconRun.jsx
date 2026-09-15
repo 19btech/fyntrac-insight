@@ -55,17 +55,54 @@ export default function ReconRunPage() {
 
   useEffect(() => { load(tab); /* eslint-disable-next-line */ }, [runId, tab]);
 
-  const exportCsv = () => {
-    const url = `${api.defaults.baseURL}/recons/runs/${runId}/export?status=${tab}`;
-    const token = sessionStorage.getItem('fyntrac_jwt');
-    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      .then((r) => r.blob())
-      .then((b) => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(b);
-        a.download = `recon-${runId}-${tab}.csv`;
-        document.body.appendChild(a); a.click(); a.remove();
+  const [exportError, setExportError] = useState('');
+
+  // Goes through the shared axios client rather than bare fetch: the client
+  // attaches the JWT the same way every other call does, and a non-2xx reply
+  // throws instead of being handed to the downloader.
+  //
+  // Previously this did `fetch(...).then(r => r.blob())` with no status check,
+  // so an error response — "Missing or malformed Authorization header", "Run not
+  // found" — was written straight into the file. The download "succeeded" and
+  // the CSV contained a JSON error.
+  const exportCsv = async () => {
+    setExportError('');
+    try {
+      const res = await api.get(`/recons/runs/${runId}/export`, {
+        params: { status: tab },
+        responseType: 'blob',
       });
+
+      // A JSON body on a 200 is still an error, not a CSV — read it rather than
+      // saving it.
+      const type = res.data?.type || '';
+      if (type.includes('json')) {
+        const text = await res.data.text();
+        let msg = 'Export failed';
+        try { msg = JSON.parse(text).error || msg; } catch { /* keep default */ }
+        setExportError(msg);
+        return;
+      }
+
+      const href = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = `recon-${runId}-${tab}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+    } catch (e) {
+      // An axios error carries the body as a blob too, so unwrap it for the message.
+      let msg = e.message || 'Export failed';
+      const body = e.response?.data;
+      if (body instanceof Blob) {
+        try { msg = JSON.parse(await body.text()).error || msg; } catch { /* keep default */ }
+      } else if (body?.error) {
+        msg = body.error;
+      }
+      setExportError(msg);
+    }
   };
 
   if (loading && !run) return <Box sx={{ p: 3 }}><LinearProgress /></Box>;
@@ -86,6 +123,11 @@ export default function ReconRunPage() {
         <Typography variant="h2" sx={{ flex: 1 }}>Reconciliation result</Typography>
         <Button startIcon={<DownloadIcon />} variant="outlined" onClick={exportCsv}>Export {tab}</Button>
       </Stack>
+      {exportError && (
+        <Alert severity="error" sx={{ mt: 1 }} onClose={() => setExportError('')}>
+          Export failed: {exportError}
+        </Alert>
+      )}
       <Typography variant="caption" color="text.secondary">
         Run at {new Date(run.runAt).toLocaleString()} · {run.durationMs} ms
       </Typography>

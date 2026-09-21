@@ -21,7 +21,7 @@ const AISettingsSchema = new mongoose.Schema(
       anthropic: {
         encryptedKey: { type: String, default: '' },
         keyHint: { type: String, default: '' }, // last 4 chars for UI display
-        model: { type: String, default: 'claude-sonnet-4-20250514' },
+        model: { type: String, default: 'claude-sonnet-4-6' },
         verifiedAt: { type: Date, default: null },
       },
       openai: {

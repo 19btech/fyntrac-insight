@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Box } from '@mui/material';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
@@ -30,6 +30,17 @@ export default function AppShell() {
   const [datasetModal, setDatasetModal] = useState(null);
   const [reconModal, setReconModal] = useState(null);
   const [sqlLabOpen, setSqlLabOpen] = useState(false);
+
+  // The Instrument Browser is a wide, table-heavy page, so entering it collapses
+  // the sidebar to give the results room. Only fires on ARRIVAL — expanding it
+  // again while on the page sticks, rather than being re-collapsed on re-render.
+  const { pathname } = useLocation();
+  const prevPathRef = useRef(pathname);
+  useEffect(() => {
+    const prev = prevPathRef.current;
+    prevPathRef.current = pathname;
+    if (pathname === '/instruments' && prev !== '/instruments') setSidebarOpen(false);
+  }, [pathname]);
   // Keep the always-on dialogs mounted (for animations + state) once first
   // opened, so their lazy chunk loads on demand but doesn't reload after that.
   const [aiMounted, setAiMounted] = useState(false);

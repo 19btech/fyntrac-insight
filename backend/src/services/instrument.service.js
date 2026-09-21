@@ -233,19 +233,42 @@ function escapeRegex(s) {
 }
 
 /**
- * Instrument equality. Exact match only — no case-insensitive regex, which
- * would defeat any index on the column.
+ * The spellings of a typed value worth trying, most likely first.
+ *
+ * Instrument ids are conventionally stored upper-cased, but someone typing one
+ * in (or pasting it from an email) rarely matches that exactly. A
+ * case-insensitive regex would find them and defeat every index on the column —
+ * the single most expensive thing this file can do. Enumerating the few
+ * plausible spellings instead keeps the lookup keyed: $in on an indexed field
+ * is one index seek per value, so this costs at most two extra seeks and never
+ * a scan.
+ *
+ * Deliberately NOT a blanket case-fold: the value is tried as typed first, so a
+ * source whose ids genuinely carry mixed case still matches exactly.
+ */
+function caseVariants(value) {
+  return [...new Set([value, value.toUpperCase(), value.toLowerCase()])];
+}
+
+/**
+ * Instrument equality. Exact match on one of a few case spellings — never a
+ * case-insensitive regex, which would defeat any index on the column.
  */
 function instrumentClause(field, rawValue, fieldType) {
   const value = String(rawValue).trim();
   const numeric = /^-?\d+$/.test(value) ? Number(value) : null;
 
   if (fieldType === 'number' && numeric !== null) return { [field]: numeric };
-  if (fieldType === 'string') return { [field]: value };
 
-  // Type unknown: accept both, still index-friendly ($in on an indexed field
-  // is a keyed lookup per value).
-  return numeric === null ? { [field]: value } : { [field]: { $in: [value, numeric] } };
+  const variants = caseVariants(value);
+  if (fieldType === 'string') {
+    return variants.length === 1 ? { [field]: value } : { [field]: { $in: variants } };
+  }
+
+  // Type unknown: accept the numeric reading too, still index-friendly ($in on
+  // an indexed field is a keyed lookup per value).
+  const all = numeric === null ? variants : [...variants, numeric];
+  return all.length === 1 ? { [field]: all[0] } : { [field]: { $in: all } };
 }
 
 /**
@@ -465,6 +488,7 @@ function resolveMongoLineage(pipeline, outputField) {
 
 module.exports = {
   probeSource,
+  caseVariants,
   resolveSqlAlias,
   canPushdownToSql,
   stripSubqueries,

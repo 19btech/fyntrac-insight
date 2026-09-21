@@ -10,6 +10,61 @@ const SQL_KEYWORDS = [
   'OVER', 'PARTITION BY', 'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'COALESCE', 'CAST', 'WITH',
 ];
 
+// Inconsolata is the Snowflake (Snowsight) worksheet editor typeface. Both it
+// and JetBrains Mono are webfonts (see index.html), so the stack ends in fonts
+// that actually exist locally on each platform — Consolas on Windows, SF
+// Mono/Menlo on macOS. Without Consolas, a Windows machine that fails to load
+// the webfont falls through to generic `monospace`, i.e. Courier New, whose
+// metrics are nothing like Inconsolata's.
+const EDITOR_FONT_STACK =
+  "'Inconsolata', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace";
+const EDITOR_FONT_SIZE = 15;
+const EDITOR_FONT_WEIGHT = '600';
+
+/**
+ * Re-measure once the webfonts have actually arrived.
+ *
+ * Monaco measures one character's advance width when it initialises and caches
+ * it to place the caret, selection and every token. Inconsolata is loaded from
+ * Google Fonts with `display=swap`, so on a cold cache Monaco measures the
+ * FALLBACK font, the real font swaps in a moment later, and every column after
+ * the first is then positioned using the wrong width. The error accumulates
+ * along the line — a caret roughly two characters adrift by column 40.
+ *
+ * It only shows up where the fallback's metrics differ sharply from
+ * Inconsolata's (Windows falling back to Courier New) and where the font is not
+ * already cached — which is why it reproduces on a live site but not locally,
+ * and not on macOS.
+ */
+function remeasureWhenFontsReady(monaco) {
+  const remeasure = () => {
+    try {
+      monaco.editor.remeasureFonts();
+    } catch {
+      /* editor already disposed */
+    }
+  };
+
+  // One deferred pass regardless. The editor mounts inside a dialog, and a
+  // measurement taken while that dialog is still animating (it opens under a
+  // transform) is distorted in the same way a font swap distorts it.
+  setTimeout(remeasure, 600);
+
+  if (!document.fonts) return; // no Font Loading API — the pass above is all we get
+
+  // Ask for the exact faces the editor renders in, then remeasure. `ready`
+  // covers the general case (and resolves immediately if fonts are cached);
+  // the explicit loads cover a face that nothing else on the page requested.
+  const faces = [
+    `${EDITOR_FONT_WEIGHT} ${EDITOR_FONT_SIZE}px Inconsolata`,
+    `${EDITOR_FONT_WEIGHT} ${EDITOR_FONT_SIZE}px 'JetBrains Mono'`,
+  ];
+  Promise.all(faces.map((f) => document.fonts.load(f).catch(() => null)))
+    .then(remeasure)
+    .catch(remeasure);
+  document.fonts.ready.then(remeasure).catch(() => {});
+}
+
 /**
  * Monaco SQL editor with collection/field autocomplete and Ctrl/Cmd+Enter to
  * run. A single instance is reused across worksheet tabs (the parent swaps
@@ -32,6 +87,7 @@ export default function SqlEditor({ value, onChange, onRun, collections, apiRef 
   const handleMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    remeasureWhenFontsReady(monaco);
     if (apiRef) {
       apiRef.current = {
         // Insert text at the cursor (used when a field is clicked in the sidebar).
@@ -102,10 +158,9 @@ export default function SqlEditor({ value, onChange, onRun, collections, apiRef 
         onChange={(v) => onChange(v ?? '')}
         onMount={handleMount}
         options={{
-          // Inconsolata is the Snowflake (Snowsight) worksheet editor typeface.
-          fontFamily: "'Inconsolata', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
-          fontSize: 15,
-          fontWeight: '600',
+          fontFamily: EDITOR_FONT_STACK,
+          fontSize: EDITOR_FONT_SIZE,
+          fontWeight: EDITOR_FONT_WEIGHT,
           lineHeight: 22,
           fontLigatures: false,
           letterSpacing: 0.2,

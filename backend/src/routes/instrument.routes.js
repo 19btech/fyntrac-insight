@@ -432,9 +432,16 @@ router.post('/suggest', async (req, res) => {
     const resolved = await resolveSource(src, req.user.tenantId, req.model);
     if (!resolved) return res.json([]);
 
-    const escaped = String(prefix).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = { $regex: `^${escaped}` };
-    const match = { $match: { [src.instrumentField]: regex } };
+    // Same case handling as /run: a `^`-anchored regex can use an index, an
+    // `i`-flagged one cannot — so try the few plausible spellings as separate
+    // anchored branches rather than case-folding. $or of anchored regexes stays
+    // one index range scan per branch.
+    const esc = (v) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const prefixForms = instrumentService.caseVariants(String(prefix).trim());
+    const prefixClause = (field) => (prefixForms.length === 1
+      ? { [field]: { $regex: `^${esc(prefixForms[0])}` } }
+      : { $or: prefixForms.map((f) => ({ [field]: { $regex: `^${esc(f)}` } })) });
+    const match = { $match: prefixClause(src.instrumentField) };
 
     // Same reasoning as /run: a report's trailing row cap must not decide which
     // instruments are searchable, or the type-ahead only ever offers ids that
@@ -460,11 +467,11 @@ router.post('/suggest', async (req, res) => {
       const sourceCol = instrumentService.resolveSqlAlias(resolved.savedQuerySql, src.instrumentField)
         || src.instrumentField;
       if (instrumentService.canPushdownToSql(resolved.savedQuerySql, sourceCol)) {
-        prefilter = { [sourceCol]: regex };
+        prefilter = prefixClause(sourceCol);
       }
     } else {
       const traced = instrumentService.resolveMongoLineage(stages, src.instrumentField);
-      if (traced.safe && traced.field) rootStages = [{ $match: { [traced.field]: regex } }];
+      if (traced.safe && traced.field) rootStages = [{ $match: prefixClause(traced.field) }];
     }
 
     const run = queryRunner.runQuery({

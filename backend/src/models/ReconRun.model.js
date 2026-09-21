@@ -38,7 +38,9 @@ const reconRunSchema = new mongoose.Schema({
     previousRunId: String,
   },
   // Each row: { status, key, a:{...measures}, b:{...measures}, deltas:{...},
-  //            attrIssues:[…], age?, category?, note?, noteBy?, noteAt? }
+  //            attrIssues:[…], age?, category?, note?, noteBy?, noteAt?,
+  //            aFull?, bFull?,           // full A/B records for the inspector
+  //            assignee?, breakStatus?, dueDate? }  // break-management workflow
   // Capped at MAX_STORED_ROWS (50 000) to stay under MongoDB's 16 MB BSON limit.
   rows: { type: [mongoose.Schema.Types.Mixed], default: [] },
   totalRows: Number,          // actual full result count before any cap

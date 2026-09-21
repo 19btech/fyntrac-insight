@@ -8,9 +8,6 @@ import ToggleButton from '@mui/material/ToggleButton';
 import BarChartIcon from '@mui/icons-material/BarChartOutlined';
 import TableViewIcon from '@mui/icons-material/TableViewOutlined';
 
-// The charting bundle is large and only a report source needs it, so keep it
-// out of the browser's initial chunk.
-const ChartRenderer = lazy(() => import('../charts/ChartRenderer'));
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import BoltIcon from '@mui/icons-material/Bolt';
 import TableRowsOutlinedIcon from '@mui/icons-material/TableRowsOutlined';
@@ -20,6 +17,10 @@ import FingerprintIcon from '@mui/icons-material/FingerprintOutlined';
 import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined';
 import ScienceIcon from '@mui/icons-material/ScienceOutlined';
 import TableChartIcon from '@mui/icons-material/TableChartOutlined';
+
+// The charting bundle is large and only a report source needs it, so keep it
+// out of the browser's initial chunk.
+const ChartRenderer = lazy(() => import('../charts/ChartRenderer'));
 
 const ACCENT = '#4f46e5';
 

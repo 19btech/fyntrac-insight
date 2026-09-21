@@ -124,20 +124,42 @@ async function withDatabase(fn) {
  * and load it into DuckDB via the native `read_json_auto` reader (C++ ingest —
  * no per-row JS overhead, handles millions of rows). Returns the row count.
  */
-async function loadCollection(db, realName, planStage, user, { enforceScanGuard }) {
+async function loadCollection(db, realName, planStage, user, { enforceScanGuard, prefilter, prelimit }) {
   // Rewrite pushed-down predicate/projection columns to the real Mongo field
   // casing. Mongo field names are case-sensitive, so `WHERE eventid = ...` must
   // become `{ eventId: ... }` or it silently matches nothing. Unresolvable
   // columns are dropped from the $match (DuckDB still applies the full WHERE,
   // case-insensitively) — keeping pushdown a strict superset.
   const fieldMap = await mongoService.getFieldNameMap(realName, user);
-  const matchStage = canonicalizeMatchStage(planStage.match, fieldMap);
+  // `prefilter` is an extra predicate supplied by the caller (the Instrument
+  // Browser) rather than parsed out of the SQL. Merging it here means Mongo
+  // streams only the matching documents into DuckDB instead of the whole
+  // collection. It is only ever a narrowing: the caller still applies the same
+  // filter to the result, and canonicalizeMatchStage drops any column it
+  // cannot resolve, so an aliased column costs speed and never correctness.
+  const combined = prefilter
+    ? { $match: planStage.match ? { $and: [planStage.match.$match, prefilter] } : prefilter }
+    : planStage.match;
+  const matchStage = canonicalizeMatchStage(combined, fieldMap);
   const projectStage = canonicalizeProjectStage(planStage.project, fieldMap);
+  // The caller's prefilter is a plain equality on a raw collection field, so it
+  // can run BEFORE the expansion stages — the only place Mongo can still use an
+  // index for it ($replaceWith blocks index use for anything behind it). The
+  // full match still runs in `extraStages` below, so this is a pure narrowing:
+  // it removes only rows that match would have removed anyway. The SQL-derived
+  // `planStage.match` deliberately stays behind the expansion, since a WHERE on
+  // a coerced column (YYYYMMDD int -> Date) depends on it.
+  const rootMatch = prefilter ? canonicalizeMatchStage({ $match: prefilter }, fieldMap) : null;
+
   const extraStages = [];
   if (matchStage) extraStages.push(matchStage);
   if (projectStage) extraStages.push(projectStage);
+  // `prelimit` caps how many source documents are streamed in. Only used to
+  // sample a source's shape (column names/types) — never for real results,
+  // which would silently truncate them.
+  if (prelimit > 0) extraStages.push({ $limit: prelimit });
 
-  if (enforceScanGuard && !matchStage) {
+  if (enforceScanGuard && !matchStage && !prelimit) {
     const total = await mongoService.countSecured(realName, null, user);
     if (total > INTERACTIVE_SCAN_LIMIT) {
       throw new Error(
@@ -150,7 +172,9 @@ async function loadCollection(db, realName, planStage, user, { enforceScanGuard 
   const tmpFile = path.join(os.tmpdir(), `sqllab-${randomUUID()}.ndjson`);
   const out = fs.createWriteStream(tmpFile, { encoding: 'utf8' });
   let rowCount = 0;
-  const cursor = await mongoService.getSecuredCursor(realName, extraStages, user);
+  const cursor = await mongoService.getSecuredCursor(realName, extraStages, user, {
+    rootStages: rootMatch ? [rootMatch] : [],
+  });
   // Shared across every row so case-variant field names resolve to one spelling.
   const canonMap = new Map();
 
@@ -214,14 +238,31 @@ async function createEmptyTable(db, realName, quoted, user) {
 }
 
 /** Resolve + load every collection a query references. */
-async function loadTables(db, plan, user, { enforceScanGuard }) {
+async function loadTables(db, plan, user, { enforceScanGuard, prefilter, prelimit }) {
   const counts = {};
+  // Offer the injected prefilter to every table in the plan. loadCollection
+  // canonicalises it against that table's real field names and DROPS any column
+  // the table does not have — so a lookup table joined on something else (a
+  // product policy, say) simply loads in full, while the fact tables that do
+  // carry the column are narrowed before they are streamed into DuckDB. On a
+  // join that is the difference between ingesting every row of every table and
+  // ingesting only the rows for one instrument.
+  //
+  // The assumption: where a table HAS the column, filtering on it does not drop
+  // rows the query would otherwise have joined. That holds when the column
+  // identifies the same entity in each table (the usual case for a fact join),
+  // which is why this is confined to the Instrument Browser's own predicate and
+  // is never derived from arbitrary SQL.
   for (const stage of plan) {
     const real = await mongoService.resolveCollection(stage.table, user);
     if (!real) {
       throw new Error(`Unknown collection "${stage.table}". Check the name in the left sidebar.`);
     }
-    counts[real] = await loadCollection(db, real, stage, user, { enforceScanGuard });
+    counts[real] = await loadCollection(db, real, stage, user, {
+      enforceScanGuard,
+      prefilter,
+      prelimit,
+    });
   }
   return counts;
 }
@@ -275,7 +316,7 @@ function serializeRow(row) {
  * inside DuckDB and return one page of rows plus the total row count and the
  * dynamically-derived column list.
  */
-async function runQuery({ sql, user, page = 0, pageSize = 100, sort = [] }) {
+async function runQuery({ sql, user, page = 0, pageSize = 100, sort = [], prefilter = null, prelimit = 0 }) {
   const start = Date.now();
   const { ast, tables, sql: effectiveSql } = parseAndValidate(sql);
   if (tables.length === 0) {
@@ -297,7 +338,7 @@ async function runQuery({ sql, user, page = 0, pageSize = 100, sort = [] }) {
   const plan = buildLoadPlan(ast, tables);
 
   return withDatabase(async (db) => {
-    const counts = await loadTables(db, plan, user, { enforceScanGuard: true });
+    const counts = await loadTables(db, plan, user, { enforceScanGuard: true, prefilter, prelimit });
     const inner = stripTrailingSemicolons(effectiveSql);
 
     const describe = await db.all(`DESCRIBE SELECT * FROM (${inner}) AS _q`);

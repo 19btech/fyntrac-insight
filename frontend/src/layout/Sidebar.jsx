@@ -211,7 +211,7 @@ export default function Sidebar({ open, width, onToggle, onSettingsClick }) {
         {MAIN_NAV.map((item) => (
           <NavItem key={item.label} {...item} active={isActive(item.path)} open={open} onNavigate={navigate} />
         ))}
-        {/* Divider directly under Prism (the last main item). */}
+        {/* Divider directly under the last main item. */}
         <Divider sx={{ borderColor: SLATE_200, mx: 1, my: 1 }} />
       </List>
 

@@ -22,6 +22,7 @@ const bookmarkRoutes = require('./routes/bookmark.routes');
 const commentRoutes = require('./routes/comment.routes');
 const subscriptionRoutes = require('./routes/subscription.routes');
 const reconRoutes = require('./routes/recon.routes');
+const instrumentRoutes = require('./routes/instrument.routes');
 const alertService = require('./services/alert.service');
 
 const app = express();
@@ -47,8 +48,9 @@ app.use(
     credentials: true,
   })
 );
-// CSV upload payloads can be up to ~25MB.
-app.use(express.json({ limit: '32mb' }));
+// Recon CSV uploads post the file as raw text inside a JSON body, so this has
+// to clear the CSV limit (25 MB) plus JSON escaping overhead.
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '64mb' }));
 
 // NOTE: Per-tenant metadata MongoDB connections are managed by tenant-db.service.js.
 // A default mongoose connection is kept here only as a dev fallback when
@@ -91,6 +93,7 @@ app.use('/api/comments', commentRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/models', modelRoutes);
 app.use('/api/recons', reconRoutes);
+app.use('/api/instruments', instrumentRoutes);
 app.use('/api/trash', trashRoutes);
 
 

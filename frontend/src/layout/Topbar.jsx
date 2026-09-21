@@ -9,30 +9,30 @@ import MenuIcon from '@mui/icons-material/Menu';
 import SearchIcon from '@mui/icons-material/Search';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
-import DashboardIcon from '@mui/icons-material/Dashboard';
-import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
-import FolderIcon from '@mui/icons-material/Folder';
-import ScienceIcon from '@mui/icons-material/Science';
-import SpeedIcon from '@mui/icons-material/Speed';
-import BalanceIcon from '@mui/icons-material/Balance';
-import SettingsIcon from '@mui/icons-material/Settings';
+import DashboardIcon from '@mui/icons-material/DashboardOutlined';
+import QuestionAnswerIcon from '@mui/icons-material/TableChartOutlined';
+import FolderIcon from '@mui/icons-material/FolderOutlined';
+import ScienceIcon from '@mui/icons-material/ScienceOutlined';
+import SpeedIcon from '@mui/icons-material/SpeedOutlined';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrowsOutlined';
 import usePageTitleStore from '../store/pageTitleStore';
 import api from '../hooks/useQuery';
 
 const OBJECT_ID_RX = /^[a-f0-9]{24}$/i;
 
+// Icons mirror the sidebar/area icons; colours are the soft per-area tints.
 const SEARCH_TYPES = {
-  dashboard: { label: 'Dashboard', icon: <DashboardIcon fontSize="small" /> },
-  question: { label: 'Report', icon: <QuestionAnswerIcon fontSize="small" /> },
-  collection: { label: 'Collection', icon: <FolderIcon fontSize="small" /> },
-  model: { label: 'Dataset', icon: <ScienceIcon fontSize="small" /> },
-  metric: { label: 'KPI', icon: <SpeedIcon fontSize="small" /> },
-  recon: { label: 'Reconciliation', icon: <BalanceIcon fontSize="small" /> },
+  dashboard:  { label: 'Dashboard',      icon: <DashboardIcon fontSize="small" />,      color: '#1e40af' },
+  question:   { label: 'Report',         icon: <QuestionAnswerIcon fontSize="small" />, color: '#15803d' },
+  collection: { label: 'Collection',     icon: <FolderIcon fontSize="small" />,         color: '#475569' },
+  model:      { label: 'Dataset',        icon: <ScienceIcon fontSize="small" />,        color: '#7c3aed' },
+  metric:     { label: 'KPI',            icon: <SpeedIcon fontSize="small" />,           color: '#b45309' },
+  recon:      { label: 'Reconciliation', icon: <CompareArrowsIcon fontSize="small" />,  color: '#0369a1' },
 };
 
 function useBreadcrumbs(pageTitle) {
   const { pathname } = useLocation();
-  const segs = pathname.split('/').filter(Boolean);
+  const segs = pathname.split('/').filter((s) => Boolean(s) && s !== 'new');
   if (segs.length === 0) return [{ label: 'Home', path: '/' }];
   const labels = {
     home: 'Home', browse: 'Browse',
@@ -261,7 +261,7 @@ export default function Topbar({ height, leftOffset = 0, onMenuClick, onAIClick 
               const meta = SEARCH_TYPES[option._type] || SEARCH_TYPES.question;
               return (
                 <Box component="li" {...props} key={`${option._type}-${option._id}`} sx={{ gap: 1.25, py: 0.75 }}>
-                  <Box sx={{ color: 'primary.main', display: 'flex' }}>{meta.icon}</Box>
+                  <Box sx={{ color: meta.color || 'primary.main', display: 'flex' }}>{meta.icon}</Box>
                   <Stack sx={{ flex: 1, minWidth: 0 }}>
                     <Typography sx={{
                       fontSize: '0.8125rem', fontWeight: 500, color: 'text.primary',

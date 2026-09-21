@@ -5,10 +5,31 @@ const ReconCsvFile = require('../models/ReconCsvFile.model');
 const SavedModel = require('../models/SavedModel.model');
 const reconService = require('../services/recon.service');
 
-const MAX_CSV_BYTES = 10 * 1024 * 1024;   // 10 MB raw text limit
-// Cap stored parsedRows to avoid exceeding MongoDB's 16 MB BSON document limit.
-// (Storing both raw text + parsed row objects for a 10 MB CSV would push ~25 MB total.)
-const MAX_CSV_STORED_ROWS = 50_000;
+const MAX_CSV_BYTES = parseInt(process.env.MAX_CSV_UPLOAD_BYTES || String(25 * 1024 * 1024), 10);
+
+// A Mongo document cannot exceed 16 MB, and parsedRows is the bulk of one. Rows
+// are therefore capped by BOTH count and estimated size: a wide CSV can blow the
+// limit well before 50k rows, and the resulting save error ("document too large")
+// would surface long after the upload appeared to succeed.
+const MAX_CSV_STORED_ROWS = parseInt(process.env.MAX_CSV_STORED_ROWS || '50000', 10);
+const MAX_STORED_ROW_BYTES = parseInt(process.env.MAX_CSV_STORED_BYTES || String(12 * 1024 * 1024), 10);
+
+/**
+ * Take rows until either cap is reached. JSON length is a good enough proxy for
+ * BSON size here — it is within a small factor, and the 12 MB budget leaves
+ * generous headroom under the hard 16 MB ceiling.
+ */
+function capStoredRows(rows) {
+  const out = [];
+  let bytes = 0;
+  for (const row of rows) {
+    if (out.length >= MAX_CSV_STORED_ROWS) break;
+    bytes += JSON.stringify(row).length;
+    if (bytes > MAX_STORED_ROW_BYTES) break;
+    out.push(row);
+  }
+  return out;
+}
 
 // ─── CSV upload (JSON body — base64 or raw text) ──────────────────────────
 // POST /api/recons/csv/preview { filename, raw } → { columns, types, sample, rowCount }
@@ -16,7 +37,11 @@ router.post('/csv/preview', async (req, res) => {
   try {
     const { filename, raw } = req.body || {};
     if (typeof raw !== 'string') return res.status(400).json({ error: 'raw (CSV text) required' });
-    if (raw.length > MAX_CSV_BYTES) return res.status(413).json({ error: `CSV too large (>${MAX_CSV_BYTES} bytes)` });
+    if (raw.length > MAX_CSV_BYTES) {
+      return res.status(413).json({
+        error: `CSV is too large — the limit is ${Math.round(MAX_CSV_BYTES / 1024 / 1024)} MB`,
+      });
+    }
     const { columns, rows } = reconService.parseCsv(raw);
     const types = reconService.inferTypes(columns, rows);
     res.json({ filename, columns, types, sample: rows.slice(0, 50), rowCount: rows.length });
@@ -28,10 +53,14 @@ router.post('/csv', async (req, res) => {
   try {
     const { filename, raw } = req.body || {};
     if (typeof raw !== 'string') return res.status(400).json({ error: 'raw (CSV text) required' });
-    if (raw.length > MAX_CSV_BYTES) return res.status(413).json({ error: `CSV too large (>${MAX_CSV_BYTES} bytes)` });
+    if (raw.length > MAX_CSV_BYTES) {
+      return res.status(413).json({
+        error: `CSV is too large — the limit is ${Math.round(MAX_CSV_BYTES / 1024 / 1024)} MB`,
+      });
+    }
     const { columns, rows } = reconService.parseCsv(raw);
     const types = reconService.inferTypes(columns, rows);
-    const storedRows = rows.slice(0, MAX_CSV_STORED_ROWS);
+    const storedRows = capStoredRows(rows);
     const f = await req.model('ReconCsvFile').create({
       tenantId: req.user.tenantId,
       filename: filename || 'upload.csv',
@@ -50,7 +79,8 @@ router.post('/csv', async (req, res) => {
     res.status(201).json({
       _id: f._id, filename: f.filename, columns: f.columns,
       types: f.inferredTypes, rowCount: f.rowCount, sample: f.sampleRows,
-      rowsTruncated: rows.length > MAX_CSV_STORED_ROWS,
+      storedRowCount: storedRows.length,
+      rowsTruncated: storedRows.length < rows.length,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

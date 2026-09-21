@@ -345,7 +345,7 @@ function validatePipeline(pipeline, tenantId) {
  * Execute an aggregation pipeline against the target MongoDB.
  * Automatically prepends tenant $match as the FIRST stage.
  */
-async function executePipeline(collectionName, rawPipeline, user) {
+async function executePipeline(collectionName, rawPipeline, user, { rootStages = [] } = {}) {
   const db = await getTargetDb(tenantDbKey(user));
   validatePipeline(rawPipeline, user.tenantId);
 
@@ -353,7 +353,18 @@ async function executePipeline(collectionName, rawPipeline, user) {
   const attributeTypes = await getAttributeTypes(user);
   const customByTable = await getCustomTableTypes(user);
   const customColumnTypes = getCustomTableColumnTypes(collectionName, customByTable);
-  const pipeline = [securityStage, ...buildExpansionStages(attributeTypes, customColumnTypes), ...rawPipeline];
+  // `rootStages` run BEFORE the expansion stages, which is the only place a
+  // $match can still use an index: buildExpansionStages emits $replaceWith/$set
+  // over every document, and Mongo cannot use an index for a $match that sits
+  // behind one. Callers may only put predicates on raw, uncoerced collection
+  // fields here — anything relying on the expansion's type coercion has to stay
+  // in rawPipeline.
+  const pipeline = [
+    securityStage,
+    ...rootStages,
+    ...buildExpansionStages(attributeTypes, customColumnTypes),
+    ...rawPipeline,
+  ];
 
   const start = Date.now();
   const col = db.collection(collectionName);
@@ -738,6 +749,10 @@ async function resolveCollection(name, user) {
   return all.find((c) => c.toLowerCase() === lower) || null;
 }
 
+// Docs per round trip when streaming a collection into the SQL engine. Larger
+// batches trade a little memory per batch for far fewer network round trips.
+const STREAM_CURSOR_BATCH = parseInt(process.env.SQL_STREAM_BATCH_SIZE || '10000', 10);
+
 /**
  * Return a LIVE aggregation cursor (not materialized) for the SQL engine to
  * stream from. Always prepends the tenant/RLS security stage + the standard
@@ -745,7 +760,7 @@ async function resolveCollection(name, user) {
  * (e.g. a pre-filter $match / $project). Streaming keeps Node memory flat
  * even when feeding millions of rows into DuckDB.
  */
-async function getSecuredCursor(collectionName, extraStages, user) {
+async function getSecuredCursor(collectionName, extraStages, user, { rootStages = [] } = {}) {
   const db = await getTargetDb(tenantDbKey(user));
   const securityStage = buildSecurityFilter(user);
   const attributeTypes = await getAttributeTypes(user);
@@ -753,10 +768,19 @@ async function getSecuredCursor(collectionName, extraStages, user) {
   const customColumnTypes = getCustomTableColumnTypes(collectionName, customByTable);
   const pipeline = [
     securityStage,
+    ...rootStages,
     ...buildExpansionStages(attributeTypes, customColumnTypes),
     ...(Array.isArray(extraStages) ? extraStages : []),
   ];
-  return db.collection(collectionName).aggregate(pipeline, { allowDiskUse: true });
+  // Batch size matters far more than it looks here. The default (one 16MB-or-
+  // 101-doc batch per round trip) spends most of a large stream waiting on the
+  // network rather than reading: against the remote tenant DB, streaming 755k
+  // projected docs measured 214s at the default vs 74s at 10k per batch. Only
+  // affects how many docs travel per round trip, never which docs or in what
+  // order.
+  return db
+    .collection(collectionName)
+    .aggregate(pipeline, { allowDiskUse: true, batchSize: STREAM_CURSOR_BATCH });
 }
 
 /**

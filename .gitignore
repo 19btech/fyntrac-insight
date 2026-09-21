@@ -5,6 +5,9 @@ node_modules/
 frontend/build/
 backend/dist/
 
+# SQL Lab generated CSV exports
+backend/exports/
+
 # Logs / PIDs
 logs/
 pids/

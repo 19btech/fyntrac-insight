@@ -16,6 +16,7 @@ import ChangeHistoryIcon from '@mui/icons-material/ChangeHistoryOutlined';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ManageSearchIcon from '@mui/icons-material/ManageSearchOutlined';
 
 const MAIN_NAV = [
   { label: 'Dashboards',      icon: <DashboardIcon fontSize="small" />,     path: '/dashboards' },
@@ -26,6 +27,7 @@ const MAIN_NAV = [
   // SQL Lab opens as a global modal (not a route) — dispatch the same kind of
   // event the Report / Dataset modals use.
   { label: 'Prism',           icon: <ChangeHistoryIcon fontSize="small" />, onClick: () => window.dispatchEvent(new CustomEvent('fyntrac:open:sqllab')) },
+  { label: 'Instrument Browser', icon: <ManageSearchIcon fontSize="small" />, path: '/instruments' },
 ];
 
 const BOTTOM_NAV = [
@@ -209,7 +211,7 @@ export default function Sidebar({ open, width, onToggle, onSettingsClick }) {
         {MAIN_NAV.map((item) => (
           <NavItem key={item.label} {...item} active={isActive(item.path)} open={open} onNavigate={navigate} />
         ))}
-        {/* Divider directly under Prism (the last main item). */}
+        {/* Divider directly under the last main item. */}
         <Divider sx={{ borderColor: SLATE_200, mx: 1, my: 1 }} />
       </List>
 

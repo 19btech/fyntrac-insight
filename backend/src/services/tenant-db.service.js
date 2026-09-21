@@ -185,3 +185,4 @@ require('../models/SavedQuery.model');
 require('../models/ShareToken.model');
 require('../models/SqlExport.model');
 require('../models/Subscription.model');
+require('../models/InstrumentSource.model');
